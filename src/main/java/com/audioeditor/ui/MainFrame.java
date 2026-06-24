@@ -65,6 +65,7 @@ public class MainFrame extends JFrame {
 
     private File currentlyOpenedAnalysisFile;
     private double previousTickPlaybackPositionInSeconds = 0;
+    private boolean lastKnownIsPlaying = false;
     // Reused for follow-scroll so the 33 Hz tick never allocates a Rectangle.
     private final Rectangle scrollTargetRect = new Rectangle();
 
@@ -305,23 +306,35 @@ public class MainFrame extends JFrame {
 
     public void loadAnalysisFileIntoEditor(File analysisJsonFile) {
         LOG.info("Opening analysis file: " + analysisJsonFile.getAbsolutePath());
-        try {
-            ProjectModel loaded = musicAnalysisFileRepository.loadFromFile(analysisJsonFile);
-            projectModel.copyFrom(loaded);
-            currentlyOpenedAnalysisFile = analysisJsonFile;
-            setTitle("Audio Analysis JSON Editor — " + analysisJsonFile.getName());
-            refreshToolbarFieldsFromProjectModel();
-            sharedSelectionModel.clearSelection();
-            loadAudioFileForPlayback(new File(projectModel.getAudioPath()), false);
-            applicationStatusLabel.setText("Loaded " + analysisJsonFile.getName());
-            LOG.info("Opened: beats=" + projectModel.getBeats().size()
-                    + " downbeats=" + projectModel.getDownbeats().size()
-                    + " segments=" + projectModel.getSegments().size());
-        } catch (Exception ex) {
-            LOG.log(Level.SEVERE, "Failed to open file: " + analysisJsonFile.getAbsolutePath(), ex);
-            JOptionPane.showMessageDialog(this, "Failed to open:\n" + ex.getMessage(),
-                    "Open error", JOptionPane.ERROR_MESSAGE);
-        }
+        applicationStatusLabel.setText("Loading " + analysisJsonFile.getName() + "…");
+        new SwingWorker<ProjectModel, Void>() {
+            @Override
+            protected ProjectModel doInBackground() throws Exception {
+                return musicAnalysisFileRepository.loadFromFile(analysisJsonFile);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    ProjectModel loaded = get();
+                    projectModel.copyFrom(loaded);
+                    currentlyOpenedAnalysisFile = analysisJsonFile;
+                    setTitle("Audio Analysis JSON Editor — " + analysisJsonFile.getName());
+                    refreshToolbarFieldsFromProjectModel();
+                    sharedSelectionModel.clearSelection();
+                    loadAudioFileForPlayback(new File(projectModel.getAudioPath()), false);
+                    applicationStatusLabel.setText("Loaded " + analysisJsonFile.getName());
+                    LOG.info("Opened: beats=" + projectModel.getBeats().size()
+                            + " downbeats=" + projectModel.getDownbeats().size()
+                            + " segments=" + projectModel.getSegments().size());
+                } catch (Exception ex) {
+                    LOG.log(Level.SEVERE, "Failed to open file: " + analysisJsonFile.getAbsolutePath(), ex);
+                    applicationStatusLabel.setText("Failed to open: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(MainFrame.this, "Failed to open:\n" + ex.getMessage(),
+                            "Open error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private void saveCurrentAnalysisFile(boolean forceShowSaveDialog) {
@@ -441,7 +454,11 @@ public class MainFrame extends JFrame {
     }
 
     private void refreshPlayPauseButtonLabel() {
-        playPauseButton.setText(pcmWavPlaybackEngine.isPlaying() ? "❚❚ Pause" : "▶ Play");
+        boolean isPlaying = pcmWavPlaybackEngine.isPlaying();
+        if (isPlaying != lastKnownIsPlaying) {
+            lastKnownIsPlaying = isPlaying;
+            playPauseButton.setText(isPlaying ? "❚❚ Pause" : "▶ Play");
+        }
     }
 
     private static String formatNumericValueOmittingTrailingZero(double numericValue) {

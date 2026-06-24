@@ -21,7 +21,9 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 /**
@@ -60,6 +62,9 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     private static final Color ZONE_SEPARATOR_COLOR = new Color(0, 0, 0, 70);
     private static final Color SEGMENT_EDGE_HANDLE_COLOR = new Color(255, 255, 255, 120);
     private static final Color PLAYHEAD_COLOR = new Color(0xffd24a);
+    private static final int PLAYHEAD_BLOCK_ALPHA = 60;
+    private static final Color PLAYHEAD_BLOCK_COLOR = new Color(
+            PLAYHEAD_COLOR.getRed(), PLAYHEAD_COLOR.getGreen(), PLAYHEAD_COLOR.getBlue(), PLAYHEAD_BLOCK_ALPHA);
 
     private static final BasicStroke SEGMENT_STROKE_SELECTED = new BasicStroke(2f);
     private static final BasicStroke SEGMENT_STROKE = new BasicStroke(1f);
@@ -68,10 +73,29 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     private static final BasicStroke BEAT_STROKE_SELECTED = new BasicStroke(2.5f);
     private static final BasicStroke BEAT_STROKE_ONE = new BasicStroke(1.6f);
     private static final BasicStroke BEAT_STROKE = new BasicStroke(1f);
-    private static final BasicStroke PLAYHEAD_STROKE = new BasicStroke(1.5f);
 
     private static final int SEGMENT_FILL_ALPHA_SELECTED = 235;
     private static final int SEGMENT_FILL_ALPHA = 170;
+
+    // Per-label color cache: label → {base, headerNormal, headerSelected, bodyNormal, bodySelected, border, separator}
+    // Populated on first access per label; avoids per-frame Color allocation in the hot paint path.
+    private static final Map<String, Color[]> SEGMENT_COLORS = new HashMap<>();
+
+    private static Color[] segmentColors(String label) {
+        return SEGMENT_COLORS.computeIfAbsent(label == null ? "" : label, l -> {
+            int hue = Math.floorMod(l.toLowerCase().hashCode(), 360);
+            Color base = Color.getHSBColor(hue / 360f, 0.55f, 0.75f);
+            return new Color[]{
+                base,
+                new Color(base.getRed(), base.getGreen(), base.getBlue(), SEGMENT_FILL_ALPHA),
+                new Color(base.getRed(), base.getGreen(), base.getBlue(), SEGMENT_FILL_ALPHA_SELECTED),
+                new Color(base.getRed(), base.getGreen(), base.getBlue(), 60),
+                new Color(base.getRed(), base.getGreen(), base.getBlue(), 95),
+                base.darker(),
+                base.darker().darker(),
+            };
+        });
+    }
 
     private final ProjectModel model;
     private final PcmWavPlaybackEngine audio;
@@ -99,10 +123,17 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     private final int[] playheadTriangleX = new int[3];
     private final int[] playheadTriangleY = new int[3];
 
+    // Cached derived values — invalidated in modelChanged() to avoid per-frame recomputation.
+    private double cachedMaxDuration = 1e-3;
+    private double[] cachedBeatInterval = null;
+    private double[] cachedDownbeatInterval = null;
+    private int cachedIntervalsForSegment = -1;
+
     public TimelinePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
         this.model = model;
         this.audio = audio;
         this.selection = selection;
+        this.cachedMaxDuration = recomputeMaxSegmentDuration();
         setBackground(PANEL_BACKGROUND);
         model.addProjectChangeListener(this);
         selection.addSelectionChangeListener(this);
@@ -123,10 +154,16 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     }
 
     public void setPlayheadPositionInSeconds(double positionInSeconds) {
+        if (positionInSeconds == this.playheadPositionInSeconds) {
+            return;
+        }
         int oldRowTop = playheadRowTopY(this.playheadPositionInSeconds);
         this.playheadPositionInSeconds = positionInSeconds;
         int newRowTop = playheadRowTopY(positionInSeconds);
         int w = Math.max(1, getWidth());
+        // Repaint the full rows around the old and new playhead positions — the
+        // playhead block can span an entire beat/downbeat interval, so a narrow
+        // strip repaint is not enough.
         int yMin = Math.min(oldRowTop, newRowTop) - 2;
         int yMax = Math.max(oldRowTop, newRowTop) + rowHeightPixels + 2;
         repaint(0, yMin, w, yMax - yMin);
@@ -143,6 +180,10 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
 
     @Override
     public void modelChanged() {
+        cachedMaxDuration = recomputeMaxSegmentDuration();
+        cachedBeatInterval = null;
+        cachedDownbeatInterval = null;
+        cachedIntervalsForSegment = -1;
         revalidate();
         repaint();
     }
@@ -209,8 +250,12 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
 
     // ---- time ↔ x mapping (global scale, shared by all segment rows) ----
 
-    /** Largest segment duration — defines the global px/s scale for every row. */
+    /** Largest segment duration — defines the global px/s scale for every row. Cached; see cachedMaxDuration. */
     private double maxSegmentDuration() {
+        return cachedMaxDuration;
+    }
+
+    private double recomputeMaxSegmentDuration() {
         double max = 0;
         for (Segment s : model.getSegments()) {
             max = Math.max(max, s.getDuration());
@@ -300,22 +345,18 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             int hdrBot = yTop + hdrH;
             int dbBot = hdrBot + dbZoneH;
             int bodyH = rowHeightPixels - hdrH;
-            Color base = deriveSegmentLabelColor(s.getLabel());
+            // All Color objects for this label are pre-computed and cached:
+            // [0]=base [1]=headerNormal [2]=headerSelected [3]=bodyNormal [4]=bodySelected [5]=border [6]=separator
+            Color[] colors = segmentColors(s.getLabel());
             boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.SEGMENT, i);
-            // Header strip carries the label at full opacity; the marker body
-            // below it is lightly tinted so the vertical beat/downbeat lines read.
-            // Only the segment's proportional content width is filled — the rest
-            // of the row stays as panel background (empty space).
-            g.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(),
-                    sel ? SEGMENT_FILL_ALPHA_SELECTED : SEGMENT_FILL_ALPHA));
+            g.setColor(sel ? colors[2] : colors[1]);
             g.fillRect(0, yTop, cw, hdrH);
-            g.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(),
-                    sel ? 95 : 60));
+            g.setColor(sel ? colors[4] : colors[3]);
             g.fillRect(0, hdrBot, cw, bodyH);
-            g.setColor(sel ? Color.WHITE : base.darker());
+            g.setColor(sel ? Color.WHITE : colors[5]);
             g.setStroke(sel ? SEGMENT_STROKE_SELECTED : SEGMENT_STROKE);
             g.drawRect(0, yTop, cw - 1, rowHeightPixels - 1);
-            g.setColor(base.darker().darker());
+            g.setColor(colors[6]);
             g.drawLine(0, hdrBot, cw, hdrBot);
             g.setColor(ZONE_SEPARATOR_COLOR);
             g.drawLine(0, dbBot, cw, dbBot);
@@ -424,6 +465,13 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         }
     }
 
+    /**
+     * Draw the playhead as a block whose width is the current beat/downbeat
+     * interval being played. In the downbeat zone the block spans from the
+     * current downbeat to the next (or the segment end); in the beat zone it
+     * spans from the current beat to the next (or the segment end). A triangle
+     * marker at the top edge indicates the exact playhead position.
+     */
     private void drawPlayhead(Graphics2D g, int w) {
         int si = findSegmentContainingTime(playheadPositionInSeconds);
         if (si < 0) {
@@ -433,9 +481,45 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         int x = timeToXInSegment(playheadPositionInSeconds, s, w);
         int yTop = rowTopY(si);
         int yBot = rowBottomY(si);
+        int hdrBot = headerBottomY(si);
+        int dbBot = downbeatZoneBottomY(si);
+
+        // Invalidate cached intervals when the active segment row changes.
+        if (si != cachedIntervalsForSegment) {
+            cachedBeatInterval = null;
+            cachedDownbeatInterval = null;
+            cachedIntervalsForSegment = si;
+        }
+        // Recompute only when the playhead crosses into a new beat/downbeat slot.
+        if (cachedDownbeatInterval == null
+                || playheadPositionInSeconds < cachedDownbeatInterval[0]
+                || playheadPositionInSeconds >= cachedDownbeatInterval[1]) {
+            cachedDownbeatInterval = currentDownbeatInterval(s, playheadPositionInSeconds);
+        }
+        if (cachedBeatInterval == null
+                || playheadPositionInSeconds < cachedBeatInterval[0]
+                || playheadPositionInSeconds >= cachedBeatInterval[1]) {
+            cachedBeatInterval = currentBeatInterval(s, playheadPositionInSeconds);
+        }
+
+        // downbeat interval block
+        if (cachedDownbeatInterval != null) {
+            int x1 = timeToXInSegment(cachedDownbeatInterval[0], s, w);
+            int x2 = timeToXInSegment(cachedDownbeatInterval[1], s, w);
+            g.setColor(PLAYHEAD_BLOCK_COLOR);
+            g.fillRect(x1, hdrBot, Math.max(1, x2 - x1), dbBot - hdrBot);
+        }
+
+        // beat interval block
+        if (cachedBeatInterval != null) {
+            int x1 = timeToXInSegment(cachedBeatInterval[0], s, w);
+            int x2 = timeToXInSegment(cachedBeatInterval[1], s, w);
+            g.setColor(PLAYHEAD_BLOCK_COLOR);
+            g.fillRect(x1, dbBot, Math.max(1, x2 - x1), yBot - dbBot);
+        }
+
+        // triangle marker at the top edge indicating the exact playhead position
         g.setColor(PLAYHEAD_COLOR);
-        g.setStroke(PLAYHEAD_STROKE);
-        g.drawLine(x, yTop, x, yBot);
         playheadTriangleX[0] = x - 5;
         playheadTriangleX[1] = x + 5;
         playheadTriangleX[2] = x;
@@ -443,6 +527,70 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         playheadTriangleY[1] = yTop;
         playheadTriangleY[2] = yTop + 8;
         g.fillPolygon(playheadTriangleX, playheadTriangleY, 3);
+    }
+
+    /**
+     * Returns {@code [currentBeatTime, nextBeatTime]} for the beat interval
+     * containing {@code time}, or null if no beat is at or before {@code time}
+     * within the segment. The next boundary is the following beat inside the
+     * segment, or the segment end if this is the last beat.
+     */
+    private double[] currentBeatInterval(Segment s, double time) {
+        List<Beat> beats = model.getBeats();
+        int current = -1;
+        for (int i = 0; i < beats.size(); i++) {
+            double t = beats.get(i).getTime();
+            if (t >= s.getStart() && t <= s.getEnd() && t <= time) {
+                current = i;
+            } else if (t > time) {
+                break;
+            }
+        }
+        if (current < 0) {
+            return null;
+        }
+        double currentT = beats.get(current).getTime();
+        double nextT = s.getEnd();
+        for (int i = current + 1; i < beats.size(); i++) {
+            double t = beats.get(i).getTime();
+            if (t >= s.getStart() && t <= s.getEnd()) {
+                nextT = t;
+                break;
+            }
+        }
+        return new double[]{currentT, nextT};
+    }
+
+    /**
+     * Returns {@code [currentDownbeatTime, nextDownbeatTime]} for the downbeat
+     * interval containing {@code time}, or null if no downbeat is at or before
+     * {@code time} within the segment. The next boundary is the following
+     * downbeat inside the segment, or the segment end if this is the last.
+     */
+    private double[] currentDownbeatInterval(Segment s, double time) {
+        List<Double> downbeats = model.getDownbeats();
+        int current = -1;
+        for (int i = 0; i < downbeats.size(); i++) {
+            double t = downbeats.get(i);
+            if (t >= s.getStart() && t <= s.getEnd() && t <= time) {
+                current = i;
+            } else if (t > time) {
+                break;
+            }
+        }
+        if (current < 0) {
+            return null;
+        }
+        double currentT = downbeats.get(current);
+        double nextT = s.getEnd();
+        for (int i = current + 1; i < downbeats.size(); i++) {
+            double t = downbeats.get(i);
+            if (t >= s.getStart() && t <= s.getEnd()) {
+                nextT = t;
+                break;
+            }
+        }
+        return new double[]{currentT, nextT};
     }
 
     // ---- hit testing -----------------------------------------------------
@@ -866,10 +1014,6 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     // ---- misc ------------------------------------------------------------
 
     static Color deriveSegmentLabelColor(String segmentLabel) {
-        if (segmentLabel == null) {
-            segmentLabel = "";
-        }
-        int hue = Math.floorMod(segmentLabel.toLowerCase().hashCode(), 360);
-        return Color.getHSBColor(hue / 360f, 0.55f, 0.75f);
+        return segmentColors(segmentLabel)[0];
     }
 }
