@@ -8,6 +8,7 @@ import com.audioeditor.model.Segment;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -24,42 +25,39 @@ import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * Zoomable, marker-only timeline. Renders a time ruler and the segment blocks,
- * and draws each segment's beats and downbeats inside the segment's own area
- * (a label header plus downbeat and beat sub-zones), plus the playhead. All
- * marker editing — seek, select, drag-to-move, drag-to-resize segments,
- * double-click-to-play, right-click-to-delete — happens here and flows through
- * {@link ProjectModel} so the tables and playhead update live.
+ * Vertical-pile timeline. Each segment is drawn as its own row, stacked one
+ * below the other. Within every row the segment's {@code [start, end]} range
+ * maps left-to-right using a <b>global</b> pixels-per-second scale derived from
+ * the longest segment, so a segment's visual width is proportional to its
+ * duration and the remaining space on the right is left empty. Because the
+ * scale is shared, beats and downbeats at the same offset within different
+ * segments align vertically across rows, and the playhead travels at a
+ * constant pixel speed regardless of which segment is playing.
+ *
+ * <p>There is no ruler and no horizontal scrolling — the panel tracks the
+ * viewport width and scrolls vertically only. All marker editing (seek,
+ * select, drag-to-move, drag-to-resize segments, double-click-to-play,
+ * right-click-to-delete) happens here and flows through {@link ProjectModel} so
+ * the tables and playhead update live.
  */
-public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
+public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
 
     private static final Logger LOG = Logger.getLogger(TimelinePanel.class.getName());
 
-    private static final int TIME_RULER_HEIGHT_PIXELS = 22;
-    private static final int SEGMENT_BAND_TOP_Y_PIXELS = 26;
-    private static final int SEGMENT_BAND_BOTTOM_Y_PIXELS = 192;
-    // Each segment block is a container split into a label header plus two
-    // marker zones that render the downbeats and beats falling inside the
-    // segment's time range — so a segment shows its own beats/downbeats.
-    private static final int SEGMENT_HEADER_BOTTOM_Y_PIXELS = 46;
-    private static final int SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS = 46;
-    private static final int SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS = 104;
-    private static final int SEGMENT_BEAT_ZONE_TOP_Y_PIXELS = 104;
-    private static final int SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS = 192;
-    private static final int PREFERRED_PANEL_HEIGHT_PIXELS = 202;
-    private static final int HIT_TEST_TOLERANCE_PIXELS = 5;        // px tolerance for hit-testing
-    private static final int SEGMENT_EDGE_GRAB_WIDTH_PIXELS = 6;       // px for segment edge grab
+    // ---- row layout (each segment = one full-width row) ----------------
+    private static final int DEFAULT_ROW_HEIGHT_PIXELS = 120;
+    private static final int HEADER_HEIGHT_PIXELS = 22; // label strip at top of each row
+    private static final int HIT_TEST_TOLERANCE_PIXELS = 5;
+    private static final int SEGMENT_EDGE_GRAB_WIDTH_PIXELS = 6;
+    private static final int ROW_SPACING_PIXELS = 2;
 
     // ---- reused paint resources (hoisted to avoid per-paint allocation) ----
     private static final Color PANEL_BACKGROUND = new Color(0x1e1e1e);
-    private static final Color RULER_BACKGROUND = new Color(0x2b2b2b);
-    private static final Color RULER_BOTTOM_LINE = new Color(0x3c3c3c);
-    private static final Color RULER_TICK_COLOR = new Color(0x555555);
-    private static final Color RULER_LABEL_COLOR = new Color(0xaaaaaa);
     private static final Color DOWNBEAT_COLOR = new Color(0xff6e6e);
     private static final Color BEAT_ONE_COLOR = new Color(0x6ec1ff);
     private static final Color BEAT_OTHER_COLOR = new Color(0x4a7a99);
     private static final Color BEAT_LABEL_COLOR = new Color(0x99c7e0);
+    private static final Color ZONE_SEPARATOR_COLOR = new Color(0, 0, 0, 70);
     private static final Color SEGMENT_EDGE_HANDLE_COLOR = new Color(255, 255, 255, 120);
     private static final Color PLAYHEAD_COLOR = new Color(0xffd24a);
 
@@ -79,7 +77,7 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
     private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
 
-    private double pixelsPerSecond = 40.0;        // pixels per second (zoom)
+    private int rowHeightPixels = DEFAULT_ROW_HEIGHT_PIXELS;
     private double playheadPositionInSeconds = 0.0;
 
     // drag state
@@ -90,13 +88,14 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
 
     private TimelineDragOperation activeDragOperation = TimelineDragOperation.NO_DRAG_ACTIVE;
     private int draggedItemIndex = -1;
-    private double segmentDragGrabOffsetInSeconds = 0; // for segment move: click time - seg.start
+    private int dragSegmentIndex = -1;
+    private double segmentDragGrabOffsetInSeconds = 0;
+    private double dragInitialSegmentStart = 0;
+    private double dragInitialSegmentEnd = 0;
 
     // Derived once on first paint, then reused to avoid per-paint Font allocation.
-    private Font rulerFont;
     private Font segmentLabelFont;
-    private Font bandLabelFont;
-    // Reused playhead triangle scratch (paint is single-threaded on the EDT).
+    private Font beatLabelFont;
     private final int[] playheadTriangleX = new int[3];
     private final int[] playheadTriangleY = new int[3];
 
@@ -113,24 +112,33 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
         setToolTipText("");
     }
 
-    public void setPixelsPerSecond(double pixelsPerSecond) {
-        this.pixelsPerSecond = pixelsPerSecond;
+    public void setRowHeight(int rowHeightPixels) {
+        this.rowHeightPixels = rowHeightPixels;
         revalidate();
         repaint();
     }
 
-    public double getPixelsPerSecond() {
-        return pixelsPerSecond;
+    public int getRowHeight() {
+        return rowHeightPixels;
     }
 
     public void setPlayheadPositionInSeconds(double positionInSeconds) {
-        int oldX = convertTimeToPixelX(playheadPositionInSeconds);
+        int oldRowTop = playheadRowTopY(this.playheadPositionInSeconds);
         this.playheadPositionInSeconds = positionInSeconds;
-        int newX = convertTimeToPixelX(positionInSeconds);
-        // Repaint only the strips around the old and new playhead positions.
-        int x = Math.min(oldX, newX) - 8;
-        int w = Math.abs(newX - oldX) + 16;
-        repaint(x, 0, w, getHeight());
+        int newRowTop = playheadRowTopY(positionInSeconds);
+        int w = Math.max(1, getWidth());
+        int yMin = Math.min(oldRowTop, newRowTop) - 2;
+        int yMax = Math.max(oldRowTop, newRowTop) + rowHeightPixels + 2;
+        repaint(0, yMin, w, yMax - yMin);
+    }
+
+    /** Y-centre of the segment row containing the playhead (-1 if in no segment). */
+    public int getPlayheadCenterY() {
+        int si = findSegmentContainingTime(playheadPositionInSeconds);
+        if (si < 0) {
+            return -1;
+        }
+        return si * (rowHeightPixels + ROW_SPACING_PIXELS) + rowHeightPixels / 2;
     }
 
     @Override
@@ -146,18 +154,112 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
 
     @Override
     public Dimension getPreferredSize() {
-        int w = (int) ((model.getMaxTime() + 3) * pixelsPerSecond) + 20;
-        return new Dimension(Math.max(w, 800), PREFERRED_PANEL_HEIGHT_PIXELS);
+        int h = model.getSegments().size() * (rowHeightPixels + ROW_SPACING_PIXELS) + 4;
+        return new Dimension(800, Math.max(h, 100));
     }
 
-    // ---- coordinate helpers ---------------------------------------------
+    // ---- Scrollable: track viewport width, scroll vertically -------------
 
-    private int convertTimeToPixelX(double timeInSeconds) {
-        return (int) Math.round(timeInSeconds * pixelsPerSecond);
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
     }
 
-    private double convertPixelXToTime(int pixelX) {
-        return Math.max(0, pixelX / pixelsPerSecond);
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return rowHeightPixels + ROW_SPACING_PIXELS;
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return Math.max(1, visibleRect.height - rowHeightPixels);
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return false;
+    }
+
+    // ---- row geometry helpers -------------------------------------------
+
+    private int rowTopY(int segmentIndex) {
+        return segmentIndex * (rowHeightPixels + ROW_SPACING_PIXELS);
+    }
+
+    private int rowBottomY(int segmentIndex) {
+        return rowTopY(segmentIndex) + rowHeightPixels;
+    }
+
+    private int headerBottomY(int segmentIndex) {
+        return rowTopY(segmentIndex) + HEADER_HEIGHT_PIXELS;
+    }
+
+    private int downbeatZoneHeight() {
+        return Math.max(16, (rowHeightPixels - HEADER_HEIGHT_PIXELS) / 3);
+    }
+
+    private int downbeatZoneBottomY(int segmentIndex) {
+        return headerBottomY(segmentIndex) + downbeatZoneHeight();
+    }
+
+    // ---- time ↔ x mapping (global scale, shared by all segment rows) ----
+
+    /** Largest segment duration — defines the global px/s scale for every row. */
+    private double maxSegmentDuration() {
+        double max = 0;
+        for (Segment s : model.getSegments()) {
+            max = Math.max(max, s.getDuration());
+        }
+        return Math.max(max, 1e-3);
+    }
+
+    /**
+     * Visual width in pixels of a segment's content area. Proportional to the
+     * segment's duration relative to the longest segment; the remaining panel
+     * width to the right is empty space.
+     */
+    private int segmentContentWidth(Segment s, int panelWidth) {
+        return (int) Math.round((s.getDuration() / maxSegmentDuration()) * panelWidth);
+    }
+
+    private int timeToXInSegment(double timeInSeconds, Segment s, int panelWidth) {
+        double scale = panelWidth / maxSegmentDuration(); // px per second (global)
+        return (int) Math.round((timeInSeconds - s.getStart()) * scale);
+    }
+
+    private double xToTimeInSegment(int pixelX, Segment s, int panelWidth) {
+        if (panelWidth <= 0) {
+            return s.getStart();
+        }
+        double scale = maxSegmentDuration() / panelWidth; // seconds per pixel (global)
+        return s.getStart() + pixelX * scale;
+    }
+
+    private int findSegmentContainingTime(double timeInSeconds) {
+        for (int i = 0; i < model.getSegments().size(); i++) {
+            Segment s = model.getSegments().get(i);
+            if (timeInSeconds >= s.getStart() && timeInSeconds <= s.getEnd()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isTimeWithinAnySegment(double timeInSeconds) {
+        return findSegmentContainingTime(timeInSeconds) >= 0;
+    }
+
+    private int playheadRowTopY(double timeInSeconds) {
+        int si = findSegmentContainingTime(timeInSeconds);
+        if (si < 0) {
+            return -rowHeightPixels;
+        }
+        return rowTopY(si);
     }
 
     // ---- painting --------------------------------------------------------
@@ -166,117 +268,96 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
     protected void paintComponent(Graphics g0) {
         super.paintComponent(g0);
         Graphics2D g = (Graphics2D) g0;
-        // Shapes are axis-aligned lines/rects that gain nothing from AA and cost
-        // EDT time; keep them aliased. Smooth only the text (a separate hint) so
-        // labels stay crisp without taxing the per-marker shape loop.
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        if (rulerFont == null) {
+        if (segmentLabelFont == null) {
             Font base = g.getFont();
-            rulerFont = base.deriveFont(10f);
             segmentLabelFont = base.deriveFont(Font.BOLD, 11f);
-            bandLabelFont = base.deriveFont(9f);
+            beatLabelFont = base.deriveFont(9f);
         }
         Rectangle clip = g.getClipBounds();
-        int h = getHeight();
-        int xMin = clip.x - 4;
-        int xMax = clip.x + clip.width + 4;
+        int w = getWidth();
+        int yMin = clip.y - 4;
+        int yMax = clip.y + clip.height + 4;
 
-        drawRuler(g, clip, h, xMin, xMax);
-        drawSegments(g, xMin, xMax);
-        drawDraggedOrphanMarker(g, xMin, xMax);
-        drawPlayhead(g, h);
+        drawSegments(g, w, yMin, yMax);
+        drawDraggedOrphanMarker(g, w, yMin, yMax);
+        drawPlayhead(g, w);
     }
 
-    private void drawRuler(Graphics2D g, Rectangle clip, int h, int xMin, int xMax) {
-        g.setColor(RULER_BACKGROUND);
-        g.fillRect(clip.x, 0, clip.width, TIME_RULER_HEIGHT_PIXELS);
-        g.setColor(RULER_BOTTOM_LINE);
-        g.drawLine(clip.x, TIME_RULER_HEIGHT_PIXELS, clip.x + clip.width, TIME_RULER_HEIGHT_PIXELS);
-
-        // adaptive seconds-per-label so labels never crowd
-        double minLabelPx = 60;
-        double step = Math.max(1, Math.ceil(minLabelPx / pixelsPerSecond));
-        g.setFont(rulerFont);
-        double maxT = model.getMaxTime() + 3;
-        double tStart = Math.max(0, Math.floor(convertPixelXToTime(xMin) / step) * step);
-        for (double t = tStart; t <= maxT; t += step) {
-            int x = convertTimeToPixelX(t);
-            if (x > xMax) {
-                break;
-            }
-            g.setColor(RULER_TICK_COLOR);
-            g.drawLine(x, TIME_RULER_HEIGHT_PIXELS - 6, x, TIME_RULER_HEIGHT_PIXELS);
-            g.setColor(RULER_LABEL_COLOR);
-            g.drawString(formatRulerTickLabel(t), x + 2, 12);
-        }
-    }
-
-    private void drawSegments(Graphics2D g, int xMin, int xMax) {
+    private void drawSegments(Graphics2D g, int w, int yMin, int yMax) {
         g.setFont(segmentLabelFont);
-        int blockHeight = SEGMENT_BAND_BOTTOM_Y_PIXELS - SEGMENT_BAND_TOP_Y_PIXELS;
-        int headerHeight = SEGMENT_HEADER_BOTTOM_Y_PIXELS - SEGMENT_BAND_TOP_Y_PIXELS;
-        int bodyHeight = SEGMENT_BAND_BOTTOM_Y_PIXELS - SEGMENT_HEADER_BOTTOM_Y_PIXELS;
+        int dbZoneH = downbeatZoneHeight();
         List<Segment> segments = model.getSegments();
         for (int i = 0; i < segments.size(); i++) {
             Segment s = segments.get(i);
-            int x1 = convertTimeToPixelX(s.getStart());
-            int x2 = convertTimeToPixelX(s.getEnd());
-            if (x2 < xMin || x1 > xMax) {
+            int yTop = rowTopY(i);
+            int yBot = rowBottomY(i);
+            if (yBot < yMin || yTop > yMax) {
                 continue;
             }
-            int w = Math.max(1, x2 - x1);
+            int cw = segmentContentWidth(s, w);
+            int hdrH = HEADER_HEIGHT_PIXELS;
+            int hdrBot = yTop + hdrH;
+            int dbBot = hdrBot + dbZoneH;
+            int bodyH = rowHeightPixels - hdrH;
             Color base = deriveSegmentLabelColor(s.getLabel());
             boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.SEGMENT, i);
             // Header strip carries the label at full opacity; the marker body
-            // below it is only lightly tinted so the beat/downbeat lines read.
+            // below it is lightly tinted so the vertical beat/downbeat lines read.
+            // Only the segment's proportional content width is filled — the rest
+            // of the row stays as panel background (empty space).
             g.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(),
                     sel ? SEGMENT_FILL_ALPHA_SELECTED : SEGMENT_FILL_ALPHA));
-            g.fillRect(x1, SEGMENT_BAND_TOP_Y_PIXELS, w, headerHeight);
+            g.fillRect(0, yTop, cw, hdrH);
             g.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(),
                     sel ? 95 : 60));
-            g.fillRect(x1, SEGMENT_HEADER_BOTTOM_Y_PIXELS, w, bodyHeight);
+            g.fillRect(0, hdrBot, cw, bodyH);
             g.setColor(sel ? Color.WHITE : base.darker());
             g.setStroke(sel ? SEGMENT_STROKE_SELECTED : SEGMENT_STROKE);
-            g.drawRect(x1, SEGMENT_BAND_TOP_Y_PIXELS, w, blockHeight);
+            g.drawRect(0, yTop, cw - 1, rowHeightPixels - 1);
             g.setColor(base.darker().darker());
-            g.drawLine(x1, SEGMENT_HEADER_BOTTOM_Y_PIXELS, x2, SEGMENT_HEADER_BOTTOM_Y_PIXELS);
-            // edge handles
+            g.drawLine(0, hdrBot, cw, hdrBot);
+            g.setColor(ZONE_SEPARATOR_COLOR);
+            g.drawLine(0, dbBot, cw, dbBot);
+            // edge handles (left & right borders of the content area)
             g.setColor(SEGMENT_EDGE_HANDLE_COLOR);
-            g.fillRect(x1, SEGMENT_BAND_TOP_Y_PIXELS, 2, blockHeight);
-            g.fillRect(x2 - 2, SEGMENT_BAND_TOP_Y_PIXELS, 2, blockHeight);
-            // label
+            g.fillRect(0, yTop, 2, rowHeightPixels);
+            g.fillRect(cw - 2, yTop, 2, rowHeightPixels);
+            // label + duration in header
             g.setColor(Color.WHITE);
-            if (w > 24) {
-                g.drawString(s.getLabel(), x1 + 4, SEGMENT_BAND_TOP_Y_PIXELS + 16);
-            }
+            String headerText = cw > 150
+                    ? String.format("%s  (%.1fs)", s.getLabel(), s.getDuration())
+                    : s.getLabel();
+            g.drawString(headerText, 6, yTop + 15);
             // markers that fall inside this segment's time range
-            drawDownbeatsInSegment(g, s, xMin, xMax);
-            drawBeatsInSegment(g, s, xMin, xMax);
+            drawDownbeatsInSegment(g, s, i, w, hdrBot, dbBot, yMin, yMax);
+            drawBeatsInSegment(g, s, i, w, dbBot, yBot, yMin, yMax);
         }
     }
 
-    private void drawDownbeatsInSegment(Graphics2D g, Segment s, int xMin, int xMax) {
+    private void drawDownbeatsInSegment(Graphics2D g, Segment s, int segIndex,
+                                        int w, int zoneTop, int zoneBottom, int yMin, int yMax) {
+        if (zoneBottom <= zoneTop) {
+            return;
+        }
         List<Double> downbeats = model.getDownbeats();
         for (int i = 0; i < downbeats.size(); i++) {
             double t = downbeats.get(i);
             if (t < s.getStart() || t > s.getEnd()) {
                 continue;
             }
-            int x = convertTimeToPixelX(t);
-            if (x < xMin || x > xMax) {
-                continue;
-            }
+            int x = timeToXInSegment(t, s, w);
             boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.DOWNBEAT, i);
             g.setColor(sel ? Color.WHITE : DOWNBEAT_COLOR);
             g.setStroke(sel ? DOWNBEAT_STROKE_SELECTED : DOWNBEAT_STROKE);
-            g.drawLine(x, SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS, x, SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS);
+            g.drawLine(x, zoneTop, x, zoneBottom);
         }
     }
 
-    private void drawBeatsInSegment(Graphics2D g, Segment s, int xMin, int xMax) {
-        boolean drawLabels = pixelsPerSecond >= 14; // only show bar positions when readable
-        if (drawLabels) {
-            g.setFont(bandLabelFont);
+    private void drawBeatsInSegment(Graphics2D g, Segment s, int segIndex,
+                                    int w, int zoneTop, int zoneBottom, int yMin, int yMax) {
+        if (zoneBottom <= zoneTop) {
+            return;
         }
         List<Beat> beats = model.getBeats();
         for (int i = 0; i < beats.size(); i++) {
@@ -285,10 +366,7 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
             if (t < s.getStart() || t > s.getEnd()) {
                 continue;
             }
-            int x = convertTimeToPixelX(t);
-            if (x < xMin || x > xMax) {
-                continue;
-            }
+            int x = timeToXInSegment(t, s, w);
             boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.BEAT, i);
             boolean one = b.getPosition() == 1;
             if (sel) {
@@ -298,97 +376,97 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
                 g.setColor(one ? BEAT_ONE_COLOR : BEAT_OTHER_COLOR);
                 g.setStroke(one ? BEAT_STROKE_ONE : BEAT_STROKE);
             }
-            g.drawLine(x, SEGMENT_BEAT_ZONE_TOP_Y_PIXELS, x, SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS);
-            if (drawLabels) {
+            g.drawLine(x, zoneTop, x, zoneBottom);
+            // bar-position label at the bottom of the line when there is room
+            if (zoneBottom - zoneTop > 18) {
+                g.setFont(beatLabelFont);
                 g.setColor(sel ? Color.WHITE : BEAT_LABEL_COLOR);
-                g.drawString(Integer.toString(b.getPosition()), x + 1, SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS - 4);
+                g.drawString(Integer.toString(b.getPosition()), x + 2, zoneBottom - 3);
             }
         }
     }
 
     /**
      * While a beat/downbeat is being dragged it may leave every segment's time
-     * range; draw it at its current position anyway so it doesn't vanish
+     * range; draw it clamped to the original row edge so it doesn't vanish
      * mid-drag (it snaps back into a segment on release / sort).
      */
-    private void drawDraggedOrphanMarker(Graphics2D g, int xMin, int xMax) {
-        if (activeDragOperation == TimelineDragOperation.DRAGGING_BEAT_MARKER && draggedItemIndex >= 0) {
+    private void drawDraggedOrphanMarker(Graphics2D g, int w, int yMin, int yMax) {
+        if (dragSegmentIndex < 0 || draggedItemIndex < 0) {
+            return;
+        }
+        int yTop = rowTopY(dragSegmentIndex);
+        if (yTop + rowHeightPixels < yMin || yTop > yMax) {
+            return;
+        }
+        Segment dragSeg = model.getSegments().get(dragSegmentIndex);
+        int cw = segmentContentWidth(dragSeg, w);
+        if (activeDragOperation == TimelineDragOperation.DRAGGING_BEAT_MARKER) {
             Beat b = model.getBeats().get(draggedItemIndex);
             if (!isTimeWithinAnySegment(b.getTime())) {
-                int x = convertTimeToPixelX(b.getTime());
-                if (x >= xMin && x <= xMax) {
-                    g.setColor(Color.WHITE);
-                    g.setStroke(BEAT_STROKE_SELECTED);
-                    g.drawLine(x, SEGMENT_BEAT_ZONE_TOP_Y_PIXELS, x, SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS);
-                }
+                int x = Math.max(0, Math.min(cw, timeToXInSegment(b.getTime(), dragSeg, w)));
+                int zoneTop = downbeatZoneBottomY(dragSegmentIndex);
+                int zoneBottom = rowBottomY(dragSegmentIndex);
+                g.setColor(Color.WHITE);
+                g.setStroke(BEAT_STROKE_SELECTED);
+                g.drawLine(x, zoneTop, x, zoneBottom);
             }
-        } else if (activeDragOperation == TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER && draggedItemIndex >= 0) {
+        } else if (activeDragOperation == TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER) {
             double t = model.getDownbeats().get(draggedItemIndex);
             if (!isTimeWithinAnySegment(t)) {
-                int x = convertTimeToPixelX(t);
-                if (x >= xMin && x <= xMax) {
-                    g.setColor(Color.WHITE);
-                    g.setStroke(DOWNBEAT_STROKE_SELECTED);
-                    g.drawLine(x, SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS, x, SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS);
-                }
+                int x = Math.max(0, Math.min(cw, timeToXInSegment(t, dragSeg, w)));
+                int zoneTop = headerBottomY(dragSegmentIndex);
+                int zoneBottom = downbeatZoneBottomY(dragSegmentIndex);
+                g.setColor(Color.WHITE);
+                g.setStroke(DOWNBEAT_STROKE_SELECTED);
+                g.drawLine(x, zoneTop, x, zoneBottom);
             }
         }
     }
 
-    private boolean isTimeWithinAnySegment(double timeInSeconds) {
-        for (Segment s : model.getSegments()) {
-            if (timeInSeconds >= s.getStart() && timeInSeconds <= s.getEnd()) {
-                return true;
-            }
+    private void drawPlayhead(Graphics2D g, int w) {
+        int si = findSegmentContainingTime(playheadPositionInSeconds);
+        if (si < 0) {
+            return;
         }
-        return false;
-    }
-
-    private void drawPlayhead(Graphics2D g, int h) {
-        int x = convertTimeToPixelX(playheadPositionInSeconds);
+        Segment s = model.getSegments().get(si);
+        int x = timeToXInSegment(playheadPositionInSeconds, s, w);
+        int yTop = rowTopY(si);
+        int yBot = rowBottomY(si);
         g.setColor(PLAYHEAD_COLOR);
         g.setStroke(PLAYHEAD_STROKE);
-        g.drawLine(x, 0, x, h);
+        g.drawLine(x, yTop, x, yBot);
         playheadTriangleX[0] = x - 5;
         playheadTriangleX[1] = x + 5;
         playheadTriangleX[2] = x;
-        playheadTriangleY[0] = 0;
-        playheadTriangleY[1] = 0;
-        playheadTriangleY[2] = 8;
+        playheadTriangleY[0] = yTop;
+        playheadTriangleY[1] = yTop;
+        playheadTriangleY[2] = yTop + 8;
         g.fillPolygon(playheadTriangleX, playheadTriangleY, 3);
     }
 
     // ---- hit testing -----------------------------------------------------
 
-    private int hitSegment(int mx) {
-        for (int i = model.getSegments().size() - 1; i >= 0; i--) {
-            Segment s = model.getSegments().get(i);
-            if (mx >= convertTimeToPixelX(s.getStart()) - SEGMENT_EDGE_GRAB_WIDTH_PIXELS
-                    && mx <= convertTimeToPixelX(s.getEnd()) + SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    /** Index of the segment whose [start,end] strictly contains the time at x (-1 if none). */
-    private int hitSegmentContaining(int mx) {
-        double t = convertPixelXToTime(mx);
-        for (int i = model.getSegments().size() - 1; i >= 0; i--) {
-            Segment s = model.getSegments().get(i);
-            if (t >= s.getStart() && t <= s.getEnd()) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    /** Closest beat within tolerance of mx that also lies inside the given segment. */
-    private int hitBeatInSegment(int mx, int segmentIndex) {
-        if (segmentIndex < 0) {
+    /** Segment row whose y-range covers the given y (-1 if below all rows). */
+    private int hitSegmentRow(int y) {
+        int rowStride = rowHeightPixels + ROW_SPACING_PIXELS;
+        int index = y / rowStride;
+        if (index < 0 || index >= model.getSegments().size()) {
             return -1;
         }
-        Segment s = model.getSegments().get(segmentIndex);
+        // reject clicks that land in the spacing gap between rows
+        if (y >= rowBottomY(index)) {
+            return -1;
+        }
+        return index;
+    }
+
+    /** Closest beat within x tolerance that lies inside the given segment row. */
+    private int hitBeatInSegment(int x, int segIndex, int w) {
+        if (segIndex < 0) {
+            return -1;
+        }
+        Segment s = model.getSegments().get(segIndex);
         int best = -1;
         int bestD = HIT_TEST_TOLERANCE_PIXELS + 1;
         List<Beat> beats = model.getBeats();
@@ -397,7 +475,7 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
             if (t < s.getStart() || t > s.getEnd()) {
                 continue;
             }
-            int d = Math.abs(convertTimeToPixelX(t) - mx);
+            int d = Math.abs(timeToXInSegment(t, s, w) - x);
             if (d < bestD) {
                 bestD = d;
                 best = i;
@@ -406,12 +484,12 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
         return best;
     }
 
-    /** Closest downbeat within tolerance of mx that also lies inside the given segment. */
-    private int hitDownbeatInSegment(int mx, int segmentIndex) {
-        if (segmentIndex < 0) {
+    /** Closest downbeat within x tolerance that lies inside the given segment row. */
+    private int hitDownbeatInSegment(int x, int segIndex, int w) {
+        if (segIndex < 0) {
             return -1;
         }
-        Segment s = model.getSegments().get(segmentIndex);
+        Segment s = model.getSegments().get(segIndex);
         int best = -1;
         int bestD = HIT_TEST_TOLERANCE_PIXELS + 1;
         List<Double> downbeats = model.getDownbeats();
@@ -420,7 +498,7 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
             if (t < s.getStart() || t > s.getEnd()) {
                 continue;
             }
-            int d = Math.abs(convertTimeToPixelX(t) - mx);
+            int d = Math.abs(timeToXInSegment(t, s, w) - x);
             if (d < bestD) {
                 bestD = d;
                 best = i;
@@ -437,113 +515,169 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
             requestFocusInWindow();
             int x = e.getX();
             int y = e.getY();
+            int w = getWidth();
 
             if (SwingUtilities.isRightMouseButton(e)) {
                 showContextMenu(e);
                 return;
             }
             if (e.getClickCount() == 2) {
-                if (y >= SEGMENT_BAND_TOP_Y_PIXELS && y <= SEGMENT_BAND_BOTTOM_Y_PIXELS) {
-                    int si = hitSegment(x);
-                    if (si >= 0) {
-                        Segment s = model.getSegments().get(si);
-                        selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
-                        audio.seekSeconds(s.getStart());
-                        setPlayheadPositionInSeconds(s.getStart());
-                        audio.play();
-                        LOG.fine("Timeline: double-click play segment #" + si + " from " + s.getStart() + "s");
-                    }
+                int si = hitSegmentRow(y);
+                if (si >= 0) {
+                    Segment s = model.getSegments().get(si);
+                    selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                    audio.seekSeconds(s.getStart());
+                    setPlayheadPositionInSeconds(s.getStart());
+                    audio.play();
+                    LOG.fine("Timeline: double-click play segment #" + si + " from " + s.getStart() + "s");
                 }
                 return;
             }
 
-            // Everything interactive now lives inside the segment band: each
-            // segment block contains its own downbeats and beats, so a click in
-            // the band first tries a marker (by sub-zone), then the segment
-            // body/edge, then falls back to seek.
-            if (y >= SEGMENT_BAND_TOP_Y_PIXELS && y <= SEGMENT_BAND_BOTTOM_Y_PIXELS) {
-                int containingSegment = hitSegmentContaining(x);
-                if (y >= SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS && y < SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS) {
-                    int di = hitDownbeatInSegment(x, containingSegment);
-                    if (di >= 0) {
-                        selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, di);
-                        activeDragOperation = TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER;
-                        draggedItemIndex = di;
-                        double t = model.getDownbeats().get(di);
-                        LOG.fine("Timeline: selected downbeat #" + di + " at " + t + "s");
-                        seekAndUpdatePlayhead(t);
-                        return;
-                    }
+            int si = hitSegmentRow(y);
+            if (si < 0) {
+                return; // empty space below all rows — nothing to do
+            }
+            Segment s = model.getSegments().get(si);
+            int cw = segmentContentWidth(s, w);
+
+            // edge grabs take priority (left = start, right = end)
+            if (x <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_START_EDGE;
+                draggedItemIndex = si;
+                dragSegmentIndex = si;
+                dragInitialSegmentStart = s.getStart();
+                dragInitialSegmentEnd = s.getEnd();
+                LOG.fine("Timeline: grab segment #" + si + " start edge");
+                return;
+            }
+            if (x >= cw - SEGMENT_EDGE_GRAB_WIDTH_PIXELS && x < cw + SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_END_EDGE;
+                draggedItemIndex = si;
+                dragSegmentIndex = si;
+                dragInitialSegmentStart = s.getStart();
+                dragInitialSegmentEnd = s.getEnd();
+                LOG.fine("Timeline: grab segment #" + si + " end edge");
+                return;
+            }
+
+            // clicks in the empty space to the right of a short segment's
+            // content area just select the segment without seeking
+            if (x > cw) {
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                activeDragOperation = TimelineDragOperation.NO_DRAG_ACTIVE;
+                draggedItemIndex = -1;
+                dragSegmentIndex = si;
+                return;
+            }
+
+            int hdrBot = headerBottomY(si);
+            int dbBot = downbeatZoneBottomY(si);
+
+            // header zone → select + drag segment body
+            if (y < hdrBot) {
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_BODY;
+                draggedItemIndex = si;
+                dragSegmentIndex = si;
+                dragInitialSegmentStart = s.getStart();
+                dragInitialSegmentEnd = s.getEnd();
+                double clickTime = xToTimeInSegment(x, s, w);
+                segmentDragGrabOffsetInSeconds = clickTime - s.getStart();
+                LOG.fine("Timeline: selected segment #" + si + " (body) at " + s.getStart() + "s");
+                audio.seekSeconds(s.getStart());
+                setPlayheadPositionInSeconds(s.getStart());
+                return;
+            }
+
+            // downbeat zone
+            if (y < dbBot) {
+                int di = hitDownbeatInSegment(x, si, w);
+                if (di >= 0) {
+                    selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, di);
+                    activeDragOperation = TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER;
+                    draggedItemIndex = di;
+                    dragSegmentIndex = si;
+                    double t = model.getDownbeats().get(di);
+                    LOG.fine("Timeline: selected downbeat #" + di + " at " + t + "s");
+                    seekAndUpdatePlayhead(t);
+                    return;
                 }
-                if (y >= SEGMENT_BEAT_ZONE_TOP_Y_PIXELS && y <= SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS) {
-                    int bi = hitBeatInSegment(x, containingSegment);
-                    if (bi >= 0) {
-                        selection.selectItem(SelectionModel.SelectableItemType.BEAT, bi);
-                        activeDragOperation = TimelineDragOperation.DRAGGING_BEAT_MARKER;
-                        draggedItemIndex = bi;
-                        double t = model.getBeats().get(bi).getTime();
-                        LOG.fine("Timeline: selected beat #" + bi + " at " + t + "s");
-                        seekAndUpdatePlayhead(t);
-                        return;
-                    }
-                }
-                int si = hitSegment(x);
-                if (si >= 0) {
-                    Segment s = model.getSegments().get(si);
-                    selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
-                    int xs = convertTimeToPixelX(s.getStart());
-                    int xe = convertTimeToPixelX(s.getEnd());
-                    if (Math.abs(x - xs) <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                        activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_START_EDGE;
-                    } else if (Math.abs(x - xe) <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                        activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_END_EDGE;
-                    } else {
-                        activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_BODY;
-                        segmentDragGrabOffsetInSeconds = convertPixelXToTime(x) - s.getStart();
-                    }
-                    draggedItemIndex = si;
-                    LOG.fine("Timeline: selected segment #" + si + " (" + activeDragOperation + ") at " + s.getStart() + "s");
-                    audio.seekSeconds(s.getStart());
-                    setPlayheadPositionInSeconds(s.getStart());
+            }
+            // beat zone
+            if (y >= dbBot) {
+                int bi = hitBeatInSegment(x, si, w);
+                if (bi >= 0) {
+                    selection.selectItem(SelectionModel.SelectableItemType.BEAT, bi);
+                    activeDragOperation = TimelineDragOperation.DRAGGING_BEAT_MARKER;
+                    draggedItemIndex = bi;
+                    dragSegmentIndex = si;
+                    double t = model.getBeats().get(bi).getTime();
+                    LOG.fine("Timeline: selected beat #" + bi + " at " + t + "s");
+                    seekAndUpdatePlayhead(t);
                     return;
                 }
             }
 
-            // empty space anywhere -> seek
+            // click in a row but not on a marker or edge → seek within segment
             activeDragOperation = TimelineDragOperation.NO_DRAG_ACTIVE;
-            double t = convertPixelXToTime(x);
-            LOG.fine("Timeline: seek to " + t + "s");
+            draggedItemIndex = -1;
+            dragSegmentIndex = si;
+            double t = xToTimeInSegment(x, s, w);
+            LOG.fine("Timeline: seek to " + t + "s (segment #" + si + ")");
             audio.seekSeconds(t);
             setPlayheadPositionInSeconds(t);
         }
 
         @Override
         public void mouseDragged(MouseEvent e) {
-            if (activeDragOperation == TimelineDragOperation.NO_DRAG_ACTIVE || draggedItemIndex < 0) {
-                // scrubbing the playhead over empty space
-                double t = convertPixelXToTime(e.getX());
-                audio.seekSeconds(t);
-                setPlayheadPositionInSeconds(t);
+            int w = getWidth();
+            if (activeDragOperation == TimelineDragOperation.NO_DRAG_ACTIVE) {
+                // scrubbing the playhead within the segment where the press happened
+                if (dragSegmentIndex >= 0 && dragSegmentIndex < model.getSegments().size()) {
+                    Segment s = model.getSegments().get(dragSegmentIndex);
+                    double t = xToTimeInSegment(e.getX(), s, w);
+                    audio.seekSeconds(t);
+                    setPlayheadPositionInSeconds(t);
+                }
                 return;
             }
-            double t = convertPixelXToTime(e.getX());
+            if (draggedItemIndex < 0) {
+                return;
+            }
             switch (activeDragOperation) {
-                case DRAGGING_BEAT_MARKER -> model.getBeats().get(draggedItemIndex).setTime(t);
-                case DRAGGING_DOWNBEAT_MARKER -> model.getDownbeats().set(draggedItemIndex, t);
+                case DRAGGING_BEAT_MARKER -> {
+                    Segment dragSeg = model.getSegments().get(dragSegmentIndex);
+                    double t = xToTimeInSegment(e.getX(), dragSeg, w);
+                    model.getBeats().get(draggedItemIndex).setTime(t);
+                }
+                case DRAGGING_DOWNBEAT_MARKER -> {
+                    Segment dragSeg = model.getSegments().get(dragSegmentIndex);
+                    double t = xToTimeInSegment(e.getX(), dragSeg, w);
+                    model.getDownbeats().set(draggedItemIndex, t);
+                }
                 case DRAGGING_SEGMENT_START_EDGE -> {
                     Segment s = model.getSegments().get(draggedItemIndex);
-                    s.setStart(Math.min(t, s.getEnd() - 0.05));
+                    double timeAtX = dragInitialSegmentStart
+                            + (e.getX() / (double) w) * maxSegmentDuration();
+                    s.setStart(Math.min(timeAtX, dragInitialSegmentEnd - 0.05));
                 }
                 case DRAGGING_SEGMENT_END_EDGE -> {
                     Segment s = model.getSegments().get(draggedItemIndex);
-                    s.setEnd(Math.max(t, s.getStart() + 0.05));
+                    double timeAtX = dragInitialSegmentStart
+                            + (e.getX() / (double) w) * maxSegmentDuration();
+                    s.setEnd(Math.max(timeAtX, dragInitialSegmentStart + 0.05));
                 }
                 case DRAGGING_SEGMENT_BODY -> {
                     Segment s = model.getSegments().get(draggedItemIndex);
-                    double dur = s.getDuration();
-                    double ns = Math.max(0, t - segmentDragGrabOffsetInSeconds);
+                    double initialDuration = dragInitialSegmentEnd - dragInitialSegmentStart;
+                    double timeAtX = dragInitialSegmentStart
+                            + (e.getX() / (double) w) * maxSegmentDuration();
+                    double ns = Math.max(0, timeAtX - segmentDragGrabOffsetInSeconds);
                     s.setStart(ns);
-                    s.setEnd(ns + dur);
+                    s.setEnd(ns + initialDuration);
                 }
                 default -> {
                 }
@@ -553,7 +687,6 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
 
         @Override
         public void mouseReleased(MouseEvent e) {
-            // keep beat/downbeat lists time-ordered after a move
             if (activeDragOperation == TimelineDragOperation.DRAGGING_BEAT_MARKER) {
                 LOG.fine("Timeline: finished dragging beat #" + draggedItemIndex);
                 model.sortBeats();
@@ -567,32 +700,35 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
             }
             activeDragOperation = TimelineDragOperation.NO_DRAG_ACTIVE;
             draggedItemIndex = -1;
+            dragSegmentIndex = -1;
         }
 
         @Override
         public void mouseMoved(MouseEvent e) {
             int x = e.getX();
             int y = e.getY();
+            int w = getWidth();
             int cursor = Cursor.DEFAULT_CURSOR;
-            if (y >= SEGMENT_BAND_TOP_Y_PIXELS && y <= SEGMENT_BAND_BOTTOM_Y_PIXELS) {
-                int si = hitSegment(x);
-                if (si >= 0) {
-                    Segment s = model.getSegments().get(si);
-                    if (Math.abs(x - convertTimeToPixelX(s.getStart())) <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS
-                            || Math.abs(x - convertTimeToPixelX(s.getEnd())) <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                        cursor = Cursor.E_RESIZE_CURSOR;
-                    }
-                }
-                if (cursor == Cursor.DEFAULT_CURSOR) {
-                    int containingSegment = hitSegmentContaining(x);
-                    if (y >= SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS && y < SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS
-                            && hitDownbeatInSegment(x, containingSegment) >= 0) {
-                        cursor = Cursor.HAND_CURSOR;
-                    } else if (y >= SEGMENT_BEAT_ZONE_TOP_Y_PIXELS && y <= SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS
-                            && hitBeatInSegment(x, containingSegment) >= 0) {
-                        cursor = Cursor.HAND_CURSOR;
-                    } else if (si >= 0) {
+            int si = hitSegmentRow(y);
+            if (si >= 0) {
+                Segment s = model.getSegments().get(si);
+                int cw = segmentContentWidth(s, w);
+                if (x <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS
+                        || (x >= cw - SEGMENT_EDGE_GRAB_WIDTH_PIXELS && x < cw + SEGMENT_EDGE_GRAB_WIDTH_PIXELS)) {
+                    cursor = Cursor.E_RESIZE_CURSOR;
+                } else if (x <= cw) {
+                    int hdrBot = headerBottomY(si);
+                    int dbBot = downbeatZoneBottomY(si);
+                    if (y < hdrBot) {
                         cursor = Cursor.MOVE_CURSOR;
+                    } else if (y < dbBot) {
+                        if (hitDownbeatInSegment(x, si, w) >= 0) {
+                            cursor = Cursor.HAND_CURSOR;
+                        }
+                    } else {
+                        if (hitBeatInSegment(x, si, w) >= 0) {
+                            cursor = Cursor.HAND_CURSOR;
+                        }
                     }
                 }
             }
@@ -601,12 +737,10 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
     }
 
     private void reselect(SelectionModel.SelectableItemType itemType, int mx) {
-        int containingSegment = hitSegmentContaining(mx);
-        if (itemType == SelectionModel.SelectableItemType.BEAT) {
-            selection.selectItem(itemType, hitBeatInSegment(mx, containingSegment));
-        } else if (itemType == SelectionModel.SelectableItemType.DOWNBEAT) {
-            selection.selectItem(itemType, hitDownbeatInSegment(mx, containingSegment));
+        if (dragSegmentIndex < 0 || dragSegmentIndex >= model.getSegments().size()) {
+            return;
         }
+        Segment s = model.getSegments().get(dragSegmentIndex);
     }
 
     private void seekAndUpdatePlayhead(double targetTimeInSeconds) {
@@ -614,87 +748,85 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
         setPlayheadPositionInSeconds(targetTimeInSeconds);
     }
 
-    private void addAtDoubleClick(int x, int y) {
-        double t = convertPixelXToTime(x);
-        double end = Math.min(model.getMaxTime() + 5, t + 5);
-        Segment s = new Segment(t, Math.max(end, t + 1), "verse");
-        model.addSegment(s);
-        selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
-        LOG.fine("Timeline: added segment at " + t + "s (double-click)");
-    }
-
     private void showContextMenu(MouseEvent e) {
         int x = e.getX();
         int y = e.getY();
+        int w = getWidth();
         JPopupMenu menu = new JPopupMenu();
 
-        if (y >= SEGMENT_BAND_TOP_Y_PIXELS && y <= SEGMENT_BAND_BOTTOM_Y_PIXELS) {
-            int containingSegment = hitSegmentContaining(x);
-            // marker delete actions take priority when right-clicking a marker
-            if (y >= SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS && y < SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS) {
-                int di = hitDownbeatInSegment(x, containingSegment);
-                if (di >= 0) {
-                    selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, di);
-                    JMenuItem del = new JMenuItem("Delete downbeat");
-                    del.addActionListener(a -> {
-                        LOG.fine("Timeline: delete downbeat #" + di + " (context menu)");
-                        model.removeDownbeat(di);
-                    });
-                    menu.add(del);
-                    menu.show(this, x, y);
-                    return;
-                }
-            }
-            if (y >= SEGMENT_BEAT_ZONE_TOP_Y_PIXELS && y <= SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS) {
-                int bi = hitBeatInSegment(x, containingSegment);
-                if (bi >= 0) {
-                    selection.selectItem(SelectionModel.SelectableItemType.BEAT, bi);
-                    JMenuItem del = new JMenuItem("Delete beat");
-                    del.addActionListener(a -> {
-                        LOG.fine("Timeline: delete beat #" + bi + " (context menu)");
-                        model.removeBeat(bi);
-                    });
-                    menu.add(del);
-                    menu.show(this, x, y);
-                    return;
-                }
-            }
-            int si = hitSegment(x);
-            if (si >= 0) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
-                JMenuItem del = new JMenuItem("Delete segment");
+        int si = hitSegmentRow(y);
+        if (si < 0) {
+            JMenuItem add = new JMenuItem("Add segment here");
+            add.addActionListener(a -> {
+                double start = model.getMaxTime();
+                model.addSegment(new Segment(start, start + 10, "verse"));
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
+                LOG.fine("Timeline: added segment at " + start + "s (context menu)");
+            });
+            menu.add(add);
+            menu.show(this, x, y);
+            return;
+        }
+
+        Segment s = model.getSegments().get(si);
+        int hdrBot = headerBottomY(si);
+        int dbBot = downbeatZoneBottomY(si);
+
+        // marker delete actions take priority when right-clicking a marker
+        if (y >= hdrBot && y < dbBot) {
+            int di = hitDownbeatInSegment(x, si, w);
+            if (di >= 0) {
+                selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, di);
+                JMenuItem del = new JMenuItem("Delete downbeat");
                 del.addActionListener(a -> {
-                    LOG.fine("Timeline: delete segment #" + si + " (context menu)");
-                    model.removeSegment(si);
+                    LOG.fine("Timeline: delete downbeat #" + di + " (context menu)");
+                    model.removeDownbeat(di);
                 });
                 menu.add(del);
-                if (containingSegment >= 0) {
-                    double t = convertPixelXToTime(x);
-                    menu.addSeparator();
-                    JMenuItem addBeat = new JMenuItem("Add beat here");
-                    addBeat.addActionListener(a -> {
-                        model.addBeat(new Beat(t, 1));
-                        model.sortBeats();
-                        selection.selectItem(SelectionModel.SelectableItemType.BEAT,
-                                hitBeatInSegment(x, hitSegmentContaining(x)));
-                        LOG.fine("Timeline: add beat at " + t + "s (context menu)");
-                    });
-                    JMenuItem addDownbeat = new JMenuItem("Add downbeat here");
-                    addDownbeat.addActionListener(a -> {
-                        model.addDownbeat(t);
-                        model.sortDownbeats();
-                        selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT,
-                                hitDownbeatInSegment(x, hitSegmentContaining(x)));
-                        LOG.fine("Timeline: add downbeat at " + t + "s (context menu)");
-                    });
-                    menu.add(addBeat);
-                    menu.add(addDownbeat);
-                }
-            } else {
-                JMenuItem add = new JMenuItem("Add segment here");
-                add.addActionListener(a -> addAtDoubleClick(x, y));
-                menu.add(add);
+                menu.show(this, x, y);
+                return;
             }
+        }
+        if (y >= dbBot) {
+            int bi = hitBeatInSegment(x, si, w);
+            if (bi >= 0) {
+                selection.selectItem(SelectionModel.SelectableItemType.BEAT, bi);
+                JMenuItem del = new JMenuItem("Delete beat");
+                del.addActionListener(a -> {
+                    LOG.fine("Timeline: delete beat #" + bi + " (context menu)");
+                    model.removeBeat(bi);
+                });
+                menu.add(del);
+                menu.show(this, x, y);
+                return;
+            }
+        }
+
+        selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+        JMenuItem del = new JMenuItem("Delete segment");
+        del.addActionListener(a -> {
+            LOG.fine("Timeline: delete segment #" + si + " (context menu)");
+            model.removeSegment(si);
+        });
+        menu.add(del);
+        int cw = segmentContentWidth(s, w);
+        if (x < cw) {
+            double t = xToTimeInSegment(x, s, w);
+            menu.addSeparator();
+            JMenuItem addBeat = new JMenuItem("Add beat here");
+            addBeat.addActionListener(a -> {
+                model.addBeat(new Beat(t, 1));
+                model.sortBeats();
+                LOG.fine("Timeline: add beat at " + t + "s (context menu)");
+            });
+            JMenuItem addDownbeat = new JMenuItem("Add downbeat here");
+            addDownbeat.addActionListener(a -> {
+                model.addDownbeat(t);
+                model.sortDownbeats();
+                LOG.fine("Timeline: add downbeat at " + t + "s (context menu)");
+            });
+            menu.add(addBeat);
+            menu.add(addDownbeat);
         }
         menu.show(this, x, y);
     }
@@ -703,28 +835,32 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
     public String getToolTipText(MouseEvent e) {
         int x = e.getX();
         int y = e.getY();
-        if (y >= SEGMENT_BAND_TOP_Y_PIXELS && y <= SEGMENT_BAND_BOTTOM_Y_PIXELS) {
-            int containingSegment = hitSegmentContaining(x);
-            if (y >= SEGMENT_DOWNBEAT_ZONE_TOP_Y_PIXELS && y < SEGMENT_DOWNBEAT_ZONE_BOTTOM_Y_PIXELS) {
-                int di = hitDownbeatInSegment(x, containingSegment);
-                if (di >= 0) {
-                    return String.format("downbeat %.3f s", model.getDownbeats().get(di));
-                }
-            }
-            if (y >= SEGMENT_BEAT_ZONE_TOP_Y_PIXELS && y <= SEGMENT_BEAT_ZONE_BOTTOM_Y_PIXELS) {
-                int bi = hitBeatInSegment(x, containingSegment);
-                if (bi >= 0) {
-                    Beat b = model.getBeats().get(bi);
-                    return String.format("beat %.3f s  (pos %d)", b.getTime(), b.getPosition());
-                }
-            }
-            int si = hitSegment(x);
-            if (si >= 0) {
-                Segment s = model.getSegments().get(si);
-                return String.format("%s  %.2f–%.2f s", s.getLabel(), s.getStart(), s.getEnd());
+        int w = getWidth();
+        int si = hitSegmentRow(y);
+        if (si < 0) {
+            return null;
+        }
+        Segment s = model.getSegments().get(si);
+        int cw = segmentContentWidth(s, w);
+        if (x > cw) {
+            return String.format("%s  (empty)", s.getLabel());
+        }
+        int hdrBot = headerBottomY(si);
+        int dbBot = downbeatZoneBottomY(si);
+        if (y >= hdrBot && y < dbBot) {
+            int di = hitDownbeatInSegment(x, si, w);
+            if (di >= 0) {
+                return String.format("downbeat %.3f s", model.getDownbeats().get(di));
             }
         }
-        return String.format("%.2f s", convertPixelXToTime(x));
+        if (y >= dbBot) {
+            int bi = hitBeatInSegment(x, si, w);
+            if (bi >= 0) {
+                Beat b = model.getBeats().get(bi);
+                return String.format("beat %.3f s  (pos %d)", b.getTime(), b.getPosition());
+            }
+        }
+        return String.format("%s  %.2f–%.2f s", s.getLabel(), s.getStart(), s.getEnd());
     }
 
     // ---- misc ------------------------------------------------------------
@@ -735,10 +871,5 @@ public class TimelinePanel extends JPanel implements ProjectModel.ProjectChangeL
         }
         int hue = Math.floorMod(segmentLabel.toLowerCase().hashCode(), 360);
         return Color.getHSBColor(hue / 360f, 0.55f, 0.75f);
-    }
-
-    private static String formatRulerTickLabel(double positionInSeconds) {
-        int total = (int) Math.floor(positionInSeconds);
-        return String.format("%d:%02d", total / 60, total % 60);
     }
 }

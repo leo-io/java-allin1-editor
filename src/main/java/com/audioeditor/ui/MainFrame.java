@@ -76,8 +76,8 @@ public class MainFrame extends JFrame {
 
         timelinePanel = new TimelinePanel(projectModel, pcmWavPlaybackEngine, sharedSelectionModel);
         timelineScrollPane = new JScrollPane(timelinePanel,
-                JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
-        timelineScrollPane.setBorder(BorderFactory.createTitledBorder("Timeline — click to seek, drag markers/segments, double-click to play segment, right-click to delete"));
+                JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        timelineScrollPane.setBorder(BorderFactory.createTitledBorder("Timeline — segments stacked vertically: click to seek, drag markers/segments, double-click to play, right-click to delete"));
 
         setJMenuBar(buildMenu());
 
@@ -170,12 +170,12 @@ public class MainFrame extends JFrame {
         tb.addSeparator();
 
         tb.add(new JLabel(" Zoom "));
-        JSlider zoom = new JSlider(5, 250, (int) timelinePanel.getPixelsPerSecond());
+        JSlider zoom = new JSlider(60, 300, timelinePanel.getRowHeight());
         zoom.setMaximumSize(new Dimension(160, 30));
         zoom.addChangeListener(e -> {
-            timelinePanel.setPixelsPerSecond(zoom.getValue());
+            timelinePanel.setRowHeight(zoom.getValue());
             if (!zoom.getValueIsAdjusting()) {
-                LOG.fine("Zoom set to " + zoom.getValue() + " px/s");
+                LOG.fine("Row height set to " + zoom.getValue() + " px");
             }
         });
         tb.add(zoom);
@@ -264,22 +264,24 @@ public class MainFrame extends JFrame {
     }
 
     private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
-        int x = (int) Math.round(playheadPositionInSeconds * timelinePanel.getPixelsPerSecond());
-        Rectangle view = timelineScrollPane.getViewport().getViewRect();
-        // Keep the playhead inside a margin band. When it leaves the band we nudge
-        // the view by only the overflow (a few px per 30 ms tick), not a half
-        // viewport recenter — that avoids the large repaint/revalidate spike the
-        // old x - view.width/2 jump caused each time the playhead reached an edge.
-        int margin = Math.max(40, view.width / 8);
-        int newViewX = view.x;
-        if (x < view.x + margin) {
-            newViewX = Math.max(0, x - margin);
-        } else if (x > view.x + view.width - margin) {
-            newViewX = x - view.width + margin;
+        int y = timelinePanel.getPlayheadCenterY();
+        if (y < 0) {
+            return;
         }
-        // Skip the (allocation + viewport revalidate) when nothing actually moved.
-        if (newViewX != view.x) {
-            scrollTargetRect.setBounds(newViewX, 0, view.width, timelinePanel.getHeight());
+        Rectangle view = timelineScrollPane.getViewport().getViewRect();
+        // Keep the active segment row inside a vertical margin band. When it
+        // leaves the band we nudge the view by only the overflow (a few px per
+        // 30 ms tick), not a half-viewport recenter — that avoids the large
+        // repaint/revalidate spike a centered jump would cause.
+        int margin = Math.max(40, view.height / 8);
+        int newViewY = view.y;
+        if (y < view.y + margin) {
+            newViewY = Math.max(0, y - margin);
+        } else if (y > view.y + view.height - margin) {
+            newViewY = y - view.height + margin;
+        }
+        if (newViewY != view.y) {
+            scrollTargetRect.setBounds(0, newViewY, timelinePanel.getWidth(), view.height);
             timelinePanel.scrollRectToVisible(scrollTargetRect);
         }
     }
