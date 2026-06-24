@@ -70,7 +70,7 @@
   </dependencies>
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
-    <main.class>com.audioeditor.App</main.class>
+    <main.class>com.audioeditor.AudioAnalysisEditorApplication</main.class>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit.version>5.10.2</junit.version>
     <jackson.version>2.17.1</jackson.version>

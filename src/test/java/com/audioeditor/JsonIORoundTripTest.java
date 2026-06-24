@@ -1,6 +1,6 @@
 package com.audioeditor;
 
-import com.audioeditor.io.JsonIO;
+import com.audioeditor.io.AllIn1JsonFileRepository;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
@@ -22,11 +22,11 @@ class JsonIORoundTripTest {
             return;
         }
 
-        ProjectModel a = JsonIO.load(src);
+        ProjectModel a = AllIn1JsonFileRepository.INSTANCE.loadFromFile(src);
         File tmp = Files.createTempFile("editor-roundtrip", ".json").toFile();
         tmp.deleteOnExit();
-        JsonIO.save(a, tmp);
-        ProjectModel b = JsonIO.load(tmp);
+        AllIn1JsonFileRepository.INSTANCE.saveToFile(a, tmp);
+        ProjectModel b = AllIn1JsonFileRepository.INSTANCE.loadFromFile(tmp);
 
         assertEquals(a.getAudioPath(), b.getAudioPath());
         assertEquals(a.getBpm(), b.getBpm(), 1e-9);
@@ -61,8 +61,8 @@ class JsonIORoundTripTest {
 
         File tmp = Files.createTempFile("editor-edits", ".json").toFile();
         tmp.deleteOnExit();
-        JsonIO.save(m, tmp);
-        ProjectModel r = JsonIO.load(tmp);
+        AllIn1JsonFileRepository.INSTANCE.saveToFile(m, tmp);
+        ProjectModel r = AllIn1JsonFileRepository.INSTANCE.loadFromFile(tmp);
 
         assertEquals("C:/audio/song.wav", r.getAudioPath());
         assertEquals(123.5, r.getBpm(), 1e-9);

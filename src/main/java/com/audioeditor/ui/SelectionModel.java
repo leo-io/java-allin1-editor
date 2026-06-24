@@ -10,44 +10,44 @@ import java.util.List;
  */
 public class SelectionModel {
 
-    public enum Kind { NONE, BEAT, DOWNBEAT, SEGMENT }
+    public enum SelectableItemType { NONE, BEAT, DOWNBEAT, SEGMENT }
 
-    public interface Listener {
+    public interface SelectionChangeListener {
         void selectionChanged();
     }
 
-    private Kind kind = Kind.NONE;
-    private int index = -1;
-    private final List<Listener> listeners = new ArrayList<>();
+    private SelectableItemType selectedItemType = SelectableItemType.NONE;
+    private int selectedItemIndex = -1;
+    private final List<SelectionChangeListener> selectionChangeListeners = new ArrayList<>();
 
-    public void addListener(Listener l) {
-        listeners.add(l);
+    public void addSelectionChangeListener(SelectionChangeListener listener) {
+        selectionChangeListeners.add(listener);
     }
 
-    public Kind getKind() {
-        return kind;
+    public SelectableItemType getSelectedItemType() {
+        return selectedItemType;
     }
 
-    public int getIndex() {
-        return index;
+    public int getSelectedItemIndex() {
+        return selectedItemIndex;
     }
 
-    public void set(Kind kind, int index) {
-        if (this.kind == kind && this.index == index) {
+    public void selectItem(SelectableItemType itemType, int itemIndex) {
+        if (this.selectedItemType == itemType && this.selectedItemIndex == itemIndex) {
             return;
         }
-        this.kind = kind;
-        this.index = index;
-        for (Listener l : new ArrayList<>(listeners)) {
+        this.selectedItemType = itemType;
+        this.selectedItemIndex = itemIndex;
+        for (SelectionChangeListener l : new ArrayList<>(selectionChangeListeners)) {
             l.selectionChanged();
         }
     }
 
-    public void clear() {
-        set(Kind.NONE, -1);
+    public void clearSelection() {
+        selectItem(SelectableItemType.NONE, -1);
     }
 
-    public boolean is(Kind k, int i) {
-        return kind == k && index == i;
+    public boolean isItemSelected(SelectableItemType itemType, int itemIndex) {
+        return selectedItemType == itemType && selectedItemIndex == itemIndex;
     }
 }

@@ -7,36 +7,36 @@ package com.audioeditor.model;
  * object and split them back on save.
  */
 public class Beat {
-    private double time;
-    private int position;
+    private double beatTimeInSeconds;
+    private int beatPositionWithinBar;
 
-    public Beat(double time, int position) {
-        this.time = time;
-        this.position = position;
+    public Beat(double beatTimeInSeconds, int beatPositionWithinBar) {
+        this.beatTimeInSeconds = beatTimeInSeconds;
+        this.beatPositionWithinBar = beatPositionWithinBar;
     }
 
     public double getTime() {
-        return time;
+        return beatTimeInSeconds;
     }
 
     public void setTime(double time) {
-        this.time = time;
+        this.beatTimeInSeconds = time;
     }
 
     public int getPosition() {
-        return position;
+        return beatPositionWithinBar;
     }
 
     public void setPosition(int position) {
-        this.position = position;
+        this.beatPositionWithinBar = position;
     }
 
     public Beat copy() {
-        return new Beat(time, position);
+        return new Beat(beatTimeInSeconds, beatPositionWithinBar);
     }
 
     @Override
     public String toString() {
-        return String.format("Beat[%.3f, pos=%d]", time, position);
+        return String.format("Beat[%.3f, pos=%d]", beatTimeInSeconds, beatPositionWithinBar);
     }
 }

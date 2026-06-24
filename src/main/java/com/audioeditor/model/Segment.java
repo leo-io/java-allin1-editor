@@ -4,50 +4,51 @@ package com.audioeditor.model;
  * A song segment: a labelled time range (e.g. intro / verse / chorus / outro).
  */
 public class Segment {
-    private double start;
-    private double end;
-    private String label;
+    private double segmentStartTimeInSeconds;
+    private double segmentEndTimeInSeconds;
+    private String segmentStructuralLabel;
 
-    public Segment(double start, double end, String label) {
-        this.start = start;
-        this.end = end;
-        this.label = label;
+    public Segment(double segmentStartTimeInSeconds, double segmentEndTimeInSeconds, String segmentStructuralLabel) {
+        this.segmentStartTimeInSeconds = segmentStartTimeInSeconds;
+        this.segmentEndTimeInSeconds = segmentEndTimeInSeconds;
+        this.segmentStructuralLabel = segmentStructuralLabel;
     }
 
     public double getStart() {
-        return start;
+        return segmentStartTimeInSeconds;
     }
 
     public void setStart(double start) {
-        this.start = start;
+        this.segmentStartTimeInSeconds = start;
     }
 
     public double getEnd() {
-        return end;
+        return segmentEndTimeInSeconds;
     }
 
     public void setEnd(double end) {
-        this.end = end;
+        this.segmentEndTimeInSeconds = end;
     }
 
     public String getLabel() {
-        return label;
+        return segmentStructuralLabel;
     }
 
     public void setLabel(String label) {
-        this.label = label;
+        this.segmentStructuralLabel = label;
     }
 
     public double getDuration() {
-        return end - start;
+        return segmentEndTimeInSeconds - segmentStartTimeInSeconds;
     }
 
     public Segment copy() {
-        return new Segment(start, end, label);
+        return new Segment(segmentStartTimeInSeconds, segmentEndTimeInSeconds, segmentStructuralLabel);
     }
 
     @Override
     public String toString() {
-        return String.format("Segment[%.2f-%.2f %s]", start, end, label);
+        return String.format("Segment[%.2f-%.2f %s]",
+                segmentStartTimeInSeconds, segmentEndTimeInSeconds, segmentStructuralLabel);
     }
 }

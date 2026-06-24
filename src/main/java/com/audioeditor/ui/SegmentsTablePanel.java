@@ -1,6 +1,6 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.AudioEngine;
+import com.audioeditor.audio.PcmWavPlaybackEngine;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
 
@@ -14,52 +14,57 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.logging.Logger;
 
 /**
  * CRUD table for segments (start / end / label). Label uses an editable combo
  * seeded from the model's label vocabulary; reordering rows reorders the JSON
  * segment array. Selection is synced to the timeline.
  */
-public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener, SelectionModel.Listener {
+public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
+
+    private static final Logger LOG = Logger.getLogger(SegmentsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final AudioEngine audio;
+    private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
     private final JTable table;
-    private final SegTableModel tableModel;
-    private boolean syncing = false;
+    private final SegmentTableModel tableModel;
+    private boolean isSuppressingSelectionFeedback = false;
 
-    public SegmentsTablePanel(ProjectModel model, AudioEngine audio, SelectionModel selection) {
+    public SegmentsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
         this.audio = audio;
         this.selection = selection;
-        this.tableModel = new SegTableModel();
+        this.tableModel = new SegmentTableModel();
         this.table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
 
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (syncing || e.getValueIsAdjusting()) {
+            if (isSuppressingSelectionFeedback || e.getValueIsAdjusting()) {
                 return;
             }
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getSegments().size()) {
-                selection.set(SelectionModel.Kind.SEGMENT, row);
-                audio.seekSeconds(model.getSegments().get(row).getStart());
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row);
+                double t = model.getSegments().get(row).getStart();
+                LOG.fine("Segments table: selected row " + row + " (segment at " + t + "s), seeking");
+                audio.seekSeconds(t);
             }
         });
 
         add(new JScrollPane(table), BorderLayout.CENTER);
         add(buildButtons(), BorderLayout.SOUTH);
 
-        model.addListener(this);
-        selection.addListener(this);
-        refreshLabelEditor();
+        model.addProjectChangeListener(this);
+        selection.addSelectionChangeListener(this);
+        rebuildSegmentLabelComboBoxEditor();
     }
 
     /** Rebuild the label combo editor from the (possibly extended) vocabulary. */
-    private void refreshLabelEditor() {
+    private void rebuildSegmentLabelComboBoxEditor() {
         JComboBox<String> combo = new JComboBox<>(model.getLabelVocabulary().toArray(new String[0]));
         combo.setEditable(true);
         table.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(combo));
@@ -77,39 +82,47 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener,
         add.addActionListener(a -> {
             double t = audio.isLoaded() ? audio.getPositionSeconds() : 0;
             model.addSegment(new Segment(t, t + 10, "verse"));
-            refreshLabelEditor();
-            selection.set(SelectionModel.Kind.SEGMENT, model.getSegments().size() - 1);
+            rebuildSegmentLabelComboBoxEditor();
+            selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
+            LOG.fine("Segments table: added segment at " + t + "s");
         });
         dup.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
                 model.getSegments().add(row + 1, model.getSegments().get(row).copy());
-                model.fireChanged();
-                selection.set(SelectionModel.Kind.SEGMENT, row + 1);
+                model.notifyAllProjectChangeListeners();
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row + 1);
+                LOG.fine("Segments table: duplicated segment row " + row);
             }
         });
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
                 model.removeSegment(row);
-                selectRow(Math.min(row, model.getSegments().size() - 1));
+                selectTableRowAndBroadcastSelection(Math.min(row, model.getSegments().size() - 1));
+                LOG.fine("Segments table: deleted segment row " + row);
             }
         });
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row > 0) {
                 model.moveSegment(row, row - 1);
-                selection.set(SelectionModel.Kind.SEGMENT, row - 1);
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row - 1);
+                LOG.fine("Segments table: moved segment row " + row + " up");
             }
         });
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getSegments().size() - 1) {
                 model.moveSegment(row, row + 1);
-                selection.set(SelectionModel.Kind.SEGMENT, row + 1);
+                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row + 1);
+                LOG.fine("Segments table: moved segment row " + row + " down");
             }
         });
-        sort.addActionListener(a -> model.sortSegments());
+        sort.addActionListener(a -> {
+            model.sortSegments();
+            LOG.fine("Segments table: sorted by start");
+        });
 
         p.add(add);
         p.add(dup);
@@ -120,9 +133,9 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener,
         return p;
     }
 
-    private void selectRow(int row) {
-        if (row >= 0 && row < model.getSegments().size()) {
-            selection.set(SelectionModel.Kind.SEGMENT, row);
+    private void selectTableRowAndBroadcastSelection(int rowIndex) {
+        if (rowIndex >= 0 && rowIndex < model.getSegments().size()) {
+            selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, rowIndex);
         }
     }
 
@@ -131,28 +144,28 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener,
         int sel = table.getSelectedRow();
         tableModel.fireTableDataChanged();
         if (sel >= 0 && sel < tableModel.getRowCount()) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(sel, sel);
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
     @Override
     public void selectionChanged() {
-        if (selection.getKind() != SelectionModel.Kind.SEGMENT) {
+        if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.SEGMENT) {
             return;
         }
-        int i = selection.getIndex();
+        int i = selection.getSelectedItemIndex();
         if (i >= 0 && i < tableModel.getRowCount() && table.getSelectedRow() != i) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(i, i);
             table.scrollRectToVisible(table.getCellRect(i, 0, true));
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
-    private class SegTableModel extends AbstractTableModel {
-        private final String[] cols = {"Start (s)", "End (s)", "Label"};
+    private class SegmentTableModel extends AbstractTableModel {
+        private final String[] columnHeaderNames = {"Start (s)", "End (s)", "Label"};
 
         @Override
         public int getRowCount() {
@@ -161,12 +174,12 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener,
 
         @Override
         public int getColumnCount() {
-            return cols.length;
+            return columnHeaderNames.length;
         }
 
         @Override
         public String getColumnName(int c) {
-            return cols[c];
+            return columnHeaderNames[c];
         }
 
         @Override
@@ -199,12 +212,13 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.Listener,
                     case 2 -> {
                         s.setLabel(v.toString());
                         model.rememberLabel(v.toString());
-                        refreshLabelEditor();
+                        rebuildSegmentLabelComboBoxEditor();
                     }
                     default -> {
                     }
                 }
-                model.fireChanged();
+                model.notifyAllProjectChangeListeners();
+                LOG.fine("Segments table: edited row " + r + " col " + c + " = " + v);
             } catch (NumberFormatException ignored) {
             }
         }

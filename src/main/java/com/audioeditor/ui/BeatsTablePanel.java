@@ -1,6 +1,6 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.AudioEngine;
+import com.audioeditor.audio.PcmWavPlaybackEngine;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 
@@ -12,46 +12,51 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.logging.Logger;
 
 /**
  * CRUD table for beats: time (s) and bar position. Supports add, delete,
  * duplicate, reorder (up/down) and sort, with selection synced to the timeline.
  */
-public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, SelectionModel.Listener {
+public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
+
+    private static final Logger LOG = Logger.getLogger(BeatsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final AudioEngine audio;
+    private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
     private final JTable table;
-    private final BeatTableModel tableModel;
-    private boolean syncing = false;
+    private final BeatMarkerTableModel tableModel;
+    private boolean isSuppressingSelectionFeedback = false;
 
-    public BeatsTablePanel(ProjectModel model, AudioEngine audio, SelectionModel selection) {
+    public BeatsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
         this.audio = audio;
         this.selection = selection;
-        this.tableModel = new BeatTableModel();
+        this.tableModel = new BeatMarkerTableModel();
         this.table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
 
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (syncing || e.getValueIsAdjusting()) {
+            if (isSuppressingSelectionFeedback || e.getValueIsAdjusting()) {
                 return;
             }
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getBeats().size()) {
-                selection.set(SelectionModel.Kind.BEAT, row);
-                audio.seekSeconds(model.getBeats().get(row).getTime());
+                selection.selectItem(SelectionModel.SelectableItemType.BEAT, row);
+                double t = model.getBeats().get(row).getTime();
+                LOG.fine("Beats table: selected row " + row + " (beat at " + t + "s), seeking");
+                audio.seekSeconds(t);
             }
         });
 
         add(new JScrollPane(table), BorderLayout.CENTER);
         add(buildButtons(), BorderLayout.SOUTH);
 
-        model.addListener(this);
-        selection.addListener(this);
+        model.addProjectChangeListener(this);
+        selection.addSelectionChangeListener(this);
     }
 
     private JPanel buildButtons() {
@@ -65,9 +70,10 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
 
         add.addActionListener(a -> {
             int row = table.getSelectedRow();
-            double t = row >= 0 ? model.getBeats().get(row).getTime() + 0.5 : audioPos();
+            double t = row >= 0 ? model.getBeats().get(row).getTime() + 0.5 : getCurrentPlaybackPositionOrZero();
             model.addBeat(new Beat(t, 1));
-            selectRow(model.getBeats().size() - 1);
+            selectTableRowAndBroadcastSelection(model.getBeats().size() - 1);
+            LOG.fine("Beats table: added beat at " + t + "s (pos 1)");
         });
         dup.addActionListener(a -> {
             int row = table.getSelectedRow();
@@ -75,32 +81,39 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
                 Beat b = model.getBeats().get(row).copy();
                 b.setTime(b.getTime() + 0.25);
                 model.getBeats().add(row + 1, b);
-                model.fireChanged();
-                selectRow(row + 1);
+                model.notifyAllProjectChangeListeners();
+                selectTableRowAndBroadcastSelection(row + 1);
+                LOG.fine("Beats table: duplicated beat row " + row);
             }
         });
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
                 model.removeBeat(row);
-                selectRow(Math.min(row, model.getBeats().size() - 1));
+                selectTableRowAndBroadcastSelection(Math.min(row, model.getBeats().size() - 1));
+                LOG.fine("Beats table: deleted beat row " + row);
             }
         });
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row > 0) {
                 model.moveBeat(row, row - 1);
-                selectRow(row - 1);
+                selectTableRowAndBroadcastSelection(row - 1);
+                LOG.fine("Beats table: moved beat row " + row + " up");
             }
         });
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getBeats().size() - 1) {
                 model.moveBeat(row, row + 1);
-                selectRow(row + 1);
+                selectTableRowAndBroadcastSelection(row + 1);
+                LOG.fine("Beats table: moved beat row " + row + " down");
             }
         });
-        sort.addActionListener(a -> model.sortBeats());
+        sort.addActionListener(a -> {
+            model.sortBeats();
+            LOG.fine("Beats table: sorted by time");
+        });
 
         p.add(add);
         p.add(dup);
@@ -111,15 +124,15 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
         return p;
     }
 
-    private double audioPos() {
+    private double getCurrentPlaybackPositionOrZero() {
         return audio.isLoaded() ? audio.getPositionSeconds() : 0;
     }
 
-    private void selectRow(int row) {
-        if (row < 0 || row >= model.getBeats().size()) {
+    private void selectTableRowAndBroadcastSelection(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= model.getBeats().size()) {
             return;
         }
-        selection.set(SelectionModel.Kind.BEAT, row);
+        selection.selectItem(SelectionModel.SelectableItemType.BEAT, rowIndex);
     }
 
     @Override
@@ -127,28 +140,28 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
         int sel = table.getSelectedRow();
         tableModel.fireTableDataChanged();
         if (sel >= 0 && sel < tableModel.getRowCount()) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(sel, sel);
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
     @Override
     public void selectionChanged() {
-        if (selection.getKind() != SelectionModel.Kind.BEAT) {
+        if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.BEAT) {
             return;
         }
-        int i = selection.getIndex();
+        int i = selection.getSelectedItemIndex();
         if (i >= 0 && i < tableModel.getRowCount() && table.getSelectedRow() != i) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(i, i);
             table.scrollRectToVisible(table.getCellRect(i, 0, true));
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
-    private class BeatTableModel extends AbstractTableModel {
-        private final String[] cols = {"#", "Time (s)", "Position"};
+    private class BeatMarkerTableModel extends AbstractTableModel {
+        private final String[] columnHeaderNames = {"#", "Time (s)", "Position"};
 
         @Override
         public int getRowCount() {
@@ -157,12 +170,12 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
 
         @Override
         public int getColumnCount() {
-            return cols.length;
+            return columnHeaderNames.length;
         }
 
         @Override
         public String getColumnName(int c) {
-            return cols[c];
+            return columnHeaderNames[c];
         }
 
         @Override
@@ -198,7 +211,8 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.Listener, Se
                 } else if (c == 2) {
                     b.setPosition(Math.max(1, Integer.parseInt(v.toString())));
                 }
-                model.fireChanged();
+                model.notifyAllProjectChangeListeners();
+                LOG.fine("Beats table: edited row " + r + " col " + c + " = " + v);
             } catch (NumberFormatException ignored) {
             }
         }

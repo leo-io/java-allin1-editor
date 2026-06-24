@@ -1,7 +1,8 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.AudioEngine;
-import com.audioeditor.io.JsonIO;
+import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.io.AllIn1JsonFileRepository;
+import com.audioeditor.io.MusicAnalysisFileRepository;
 import com.audioeditor.model.ProjectModel;
 
 import javax.swing.BorderFactory;
@@ -18,8 +19,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSlider;
-import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
@@ -36,30 +35,38 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
+import java.util.function.Consumer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Main application window: menu + transport/edit toolbar, the timeline, and the
- * CRUD tables. Owns the playback position timer that drives the playhead and the
+ * status bar. Owns the playback position timer that drives the playhead and the
  * metronome, and the file open/save logic.
  */
 public class MainFrame extends JFrame {
 
-    private final ProjectModel model = new ProjectModel();
-    private final AudioEngine audio = new AudioEngine();
-    private final SelectionModel selection = new SelectionModel();
+    private static final Logger LOG = Logger.getLogger(MainFrame.class.getName());
 
-    private final TimelinePanel timeline;
-    private final JScrollPane timelineScroll;
+    private final ProjectModel projectModel = new ProjectModel();
+    private final PcmWavPlaybackEngine pcmWavPlaybackEngine = new PcmWavPlaybackEngine();
+    private final SelectionModel sharedSelectionModel = new SelectionModel();
+    private final MusicAnalysisFileRepository musicAnalysisFileRepository = AllIn1JsonFileRepository.INSTANCE;
 
-    private final JLabel timeLabel = new JLabel("0:00.0 / 0:00.0");
-    private final JLabel statusLabel = new JLabel("No file loaded");
-    private final JButton playBtn = new JButton("▶ Play");
-    private final JCheckBox metronome = new JCheckBox("Metronome");
-    private final JTextField bpmField = new JTextField(5);
-    private final JTextField pathField = new JTextField(34);
+    private final TimelinePanel timelinePanel;
+    private final JScrollPane timelineScrollPane;
 
-    private File currentFile;
-    private double lastPos = 0;
+    private final JLabel playbackPositionTimeLabel = new JLabel("0:00.0 / 0:00.0");
+    private final JLabel applicationStatusLabel = new JLabel("No file loaded");
+    private final JButton playPauseButton = new JButton("▶ Play");
+    private final JCheckBox metronomeEnabledCheckBox = new JCheckBox("Metronome");
+    private final JTextField beatsPerMinuteTextField = new JTextField(5);
+    private final JTextField audioFilePathTextField = new JTextField(34);
+
+    private File currentlyOpenedAnalysisFile;
+    private double previousTickPlaybackPositionInSeconds = 0;
+    // Reused for follow-scroll so the 33 Hz tick never allocates a Rectangle.
+    private final Rectangle scrollTargetRect = new Rectangle();
 
     public MainFrame() {
         super("Audio Analysis JSON Editor");
@@ -67,46 +74,41 @@ public class MainFrame extends JFrame {
         setSize(1280, 760);
         setLocationRelativeTo(null);
 
-        timeline = new TimelinePanel(model, audio, selection);
-        timelineScroll = new JScrollPane(timeline,
+        timelinePanel = new TimelinePanel(projectModel, pcmWavPlaybackEngine, sharedSelectionModel);
+        timelineScrollPane = new JScrollPane(timelinePanel,
                 JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
-        timelineScroll.setBorder(BorderFactory.createTitledBorder("Timeline — click to seek, drag markers, double-click to add, right-click to delete"));
+        timelineScrollPane.setBorder(BorderFactory.createTitledBorder("Timeline — click to seek, drag markers/segments, double-click to play segment, right-click to delete"));
 
         setJMenuBar(buildMenu());
 
         JPanel top = new JPanel(new BorderLayout());
         top.add(buildToolbar(), BorderLayout.NORTH);
-        top.add(timelineScroll, BorderLayout.CENTER);
+        top.add(timelineScrollPane, BorderLayout.CENTER);
 
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Segments", new SegmentsTablePanel(model, audio, selection));
-        tabs.addTab("Beats", new BeatsTablePanel(model, audio, selection));
-        tabs.addTab("Downbeats", new DownbeatsTablePanel(model, audio, selection));
-
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, top, tabs);
-        split.setResizeWeight(0.55);
-        add(split, BorderLayout.CENTER);
+        add(top, BorderLayout.CENTER);
         add(buildStatusBar(), BorderLayout.SOUTH);
 
-        audio.setEndListener(() -> SwingUtilities.invokeLater(this::updatePlayButton));
+        pcmWavPlaybackEngine.setPlaybackCompletionListener(() -> SwingUtilities.invokeLater(this::refreshPlayPauseButtonLabel));
 
         // Position timer: playhead + metronome + follow-scroll.
-        Timer posTimer = new Timer(30, e -> onTick());
+        Timer posTimer = new Timer(30, e -> onPlaybackPositionTimerTick());
         posTimer.start();
 
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                if (confirmDiscard()) {
-                    audio.close();
+                LOG.fine("Window close requested");
+                if (confirmDiscardUnsavedChanges()) {
+                    pcmWavPlaybackEngine.close();
                     dispose();
+                    LOG.info("Application shutting down");
                     System.exit(0);
                 }
             }
         });
 
-        installShortcuts();
-        updateFieldsFromModel();
+        registerGlobalKeyboardShortcuts();
+        refreshToolbarFieldsFromProjectModel();
     }
 
     // ---- menu / toolbar --------------------------------------------------
@@ -117,16 +119,16 @@ public class MainFrame extends JFrame {
 
         JMenuItem open = new JMenuItem("Open…");
         open.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_DOWN_MASK));
-        open.addActionListener(a -> openDialog());
+        open.addActionListener(a -> showOpenFileDialog());
 
         JMenuItem save = new JMenuItem("Save");
         save.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK));
-        save.addActionListener(a -> save(false));
+        save.addActionListener(a -> saveCurrentAnalysisFile(false));
 
         JMenuItem saveAs = new JMenuItem("Save As…");
         saveAs.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S,
                 InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
-        saveAs.addActionListener(a -> save(true));
+        saveAs.addActionListener(a -> saveCurrentAnalysisFile(true));
 
         JMenuItem exit = new JMenuItem("Exit");
         exit.addActionListener(a -> dispatchEvent(new WindowEvent(this, WindowEvent.WINDOW_CLOSING)));
@@ -144,53 +146,64 @@ public class MainFrame extends JFrame {
         JToolBar tb = new JToolBar();
         tb.setFloatable(false);
 
-        playBtn.addActionListener(a -> {
-            audio.togglePlay();
-            updatePlayButton();
+        playPauseButton.addActionListener(a -> {
+            LOG.fine("Transport: play/pause toggled (button)");
+            pcmWavPlaybackEngine.togglePlay();
+            refreshPlayPauseButtonLabel();
         });
         JButton stop = new JButton("■ Stop");
         stop.addActionListener(a -> {
-            audio.stop();
-            updatePlayButton();
-            timeline.setPlayhead(0);
+            LOG.fine("Transport: stop requested (button)");
+            pcmWavPlaybackEngine.stop();
+            refreshPlayPauseButtonLabel();
+            timelinePanel.setPlayheadPositionInSeconds(0);
         });
 
-        tb.add(playBtn);
+        tb.add(playPauseButton);
         tb.add(stop);
-        tb.add(timeLabel);
+        tb.add(playbackPositionTimeLabel);
         tb.addSeparator();
 
-        tb.add(metronome);
+        metronomeEnabledCheckBox.addActionListener(a ->
+                LOG.fine("Metronome " + (metronomeEnabledCheckBox.isSelected() ? "enabled" : "disabled")));
+        tb.add(metronomeEnabledCheckBox);
         tb.addSeparator();
 
         tb.add(new JLabel(" Zoom "));
-        JSlider zoom = new JSlider(5, 250, (int) timeline.getZoom());
+        JSlider zoom = new JSlider(5, 250, (int) timelinePanel.getPixelsPerSecond());
         zoom.setMaximumSize(new Dimension(160, 30));
-        zoom.addChangeListener(e -> timeline.setZoom(zoom.getValue()));
+        zoom.addChangeListener(e -> {
+            timelinePanel.setPixelsPerSecond(zoom.getValue());
+            if (!zoom.getValueIsAdjusting()) {
+                LOG.fine("Zoom set to " + zoom.getValue() + " px/s");
+            }
+        });
         tb.add(zoom);
         tb.addSeparator();
 
         tb.add(new JLabel(" BPM "));
-        bpmField.setMaximumSize(new Dimension(60, 26));
-        bpmField.addActionListener(a -> commitBpm());
-        bpmField.addFocusListener(new java.awt.event.FocusAdapter() {
+        beatsPerMinuteTextField.setMaximumSize(new Dimension(60, 26));
+        beatsPerMinuteTextField.addActionListener(a -> commitBeatsPerMinuteFieldValueToModel());
+        beatsPerMinuteTextField.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusLost(java.awt.event.FocusEvent e) {
-                commitBpm();
+                commitBeatsPerMinuteFieldValueToModel();
             }
         });
-        tb.add(bpmField);
+        tb.add(beatsPerMinuteTextField);
         tb.addSeparator();
 
         tb.add(new JLabel(" Audio "));
-        pathField.setMaximumSize(new Dimension(420, 26));
-        pathField.addActionListener(a -> {
-            model.setAudioPath(pathField.getText().trim());
-            loadAudio(new File(model.getAudioPath()), false);
+        audioFilePathTextField.setMaximumSize(new Dimension(420, 26));
+        audioFilePathTextField.addActionListener(a -> {
+            String path = audioFilePathTextField.getText().trim();
+            LOG.fine("Audio path entered manually: " + path);
+            projectModel.setAudioPath(path);
+            loadAudioFileForPlayback(new File(path), false);
         });
-        tb.add(pathField);
+        tb.add(audioFilePathTextField);
         JButton browse = new JButton("Browse…");
-        browse.addActionListener(a -> browseAudio());
+        browse.addActionListener(a -> showBrowseAudioFileDialog());
         tb.add(browse);
 
         return tb;
@@ -199,16 +212,17 @@ public class MainFrame extends JFrame {
     private JPanel buildStatusBar() {
         JPanel p = new JPanel(new BorderLayout());
         p.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        p.add(statusLabel, BorderLayout.WEST);
+        p.add(applicationStatusLabel, BorderLayout.WEST);
         return p;
     }
 
-    private void installShortcuts() {
+    private void registerGlobalKeyboardShortcuts() {
         // Space toggles playback when focus isn't in a text field.
         getRootPane().registerKeyboardAction(a -> {
                     if (!(getFocusOwner() instanceof JTextField)) {
-                        audio.togglePlay();
-                        updatePlayButton();
+                        LOG.fine("Transport: play/pause toggled (space key)");
+                        pcmWavPlaybackEngine.togglePlay();
+                        refreshPlayPauseButtonLabel();
                     }
                 }, KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0),
                 JPanel.WHEN_IN_FOCUSED_WINDOW);
@@ -216,84 +230,106 @@ public class MainFrame extends JFrame {
 
     // ---- periodic tick ---------------------------------------------------
 
-    private void onTick() {
-        if (!audio.isLoaded()) {
+    private void onPlaybackPositionTimerTick() {
+        if (!pcmWavPlaybackEngine.isLoaded()) {
             return;
         }
-        double pos = audio.getPositionSeconds();
-        timeline.setPlayhead(pos);
-        timeLabel.setText(fmt(pos) + " / " + fmt(audio.getDurationSeconds()));
+        double pos = pcmWavPlaybackEngine.getPositionSeconds();
+        timelinePanel.setPlayheadPositionInSeconds(pos);
+        playbackPositionTimeLabel.setText(
+                PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pos)
+                        + " / " + PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pcmWavPlaybackEngine.getDurationSeconds()));
 
-        if (audio.isPlaying()) {
-            if (metronome.isSelected() && audio.hasMetronome()) {
-                fireMetronome(lastPos, pos);
+        refreshPlayPauseButtonLabel();
+        if (pcmWavPlaybackEngine.isPlaying()) {
+            if (metronomeEnabledCheckBox.isSelected() && pcmWavPlaybackEngine.hasMetronome()) {
+                triggerMetronomeClickIfBeatFallsInInterval(previousTickPlaybackPositionInSeconds, pos);
             }
-            followPlayhead(pos);
+            scrollTimelineToKeepPlayheadVisible(pos);
         }
-        lastPos = pos;
+        previousTickPlaybackPositionInSeconds = pos;
     }
 
-    private void fireMetronome(double from, double to) {
-        if (to <= from) {
+    private void triggerMetronomeClickIfBeatFallsInInterval(double intervalStartSeconds, double intervalEndSeconds) {
+        if (intervalEndSeconds <= intervalStartSeconds) {
             return;
         }
-        for (var b : model.getBeats()) {
+        for (var b : projectModel.getBeats()) {
             double t = b.getTime();
-            if (t > from && t <= to) {
-                audio.playClick();
+            if (t > intervalStartSeconds && t <= intervalEndSeconds) {
+                pcmWavPlaybackEngine.playClick();
                 break; // at most one click per tick is plenty at 30ms
             }
         }
     }
 
-    private void followPlayhead(double pos) {
-        int x = (int) Math.round(pos * timeline.getZoom());
-        Rectangle view = timelineScroll.getViewport().getViewRect();
-        if (x < view.x + 40 || x > view.x + view.width - 40) {
-            int nx = Math.max(0, x - view.width / 2);
-            timeline.scrollRectToVisible(new Rectangle(nx, 0, view.width, timeline.getHeight()));
+    private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
+        int x = (int) Math.round(playheadPositionInSeconds * timelinePanel.getPixelsPerSecond());
+        Rectangle view = timelineScrollPane.getViewport().getViewRect();
+        // Keep the playhead inside a margin band. When it leaves the band we nudge
+        // the view by only the overflow (a few px per 30 ms tick), not a half
+        // viewport recenter — that avoids the large repaint/revalidate spike the
+        // old x - view.width/2 jump caused each time the playhead reached an edge.
+        int margin = Math.max(40, view.width / 8);
+        int newViewX = view.x;
+        if (x < view.x + margin) {
+            newViewX = Math.max(0, x - margin);
+        } else if (x > view.x + view.width - margin) {
+            newViewX = x - view.width + margin;
+        }
+        // Skip the (allocation + viewport revalidate) when nothing actually moved.
+        if (newViewX != view.x) {
+            scrollTargetRect.setBounds(newViewX, 0, view.width, timelinePanel.getHeight());
+            timelinePanel.scrollRectToVisible(scrollTargetRect);
         }
     }
 
     // ---- file operations -------------------------------------------------
 
-    private void openDialog() {
-        if (!confirmDiscard()) {
+    private void showOpenFileDialog() {
+        LOG.fine("Open file dialog requested");
+        if (!confirmDiscardUnsavedChanges()) {
             return;
         }
         JFileChooser fc = new JFileChooser();
         fc.setFileFilter(new FileNameExtensionFilter("Analysis JSON (*.json)", "json"));
-        if (currentFile != null) {
-            fc.setCurrentDirectory(currentFile.getParentFile());
+        if (currentlyOpenedAnalysisFile != null) {
+            fc.setCurrentDirectory(currentlyOpenedAnalysisFile.getParentFile());
         }
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            openFile(fc.getSelectedFile());
+            loadAnalysisFileIntoEditor(fc.getSelectedFile());
         }
     }
 
-    public void openFile(File f) {
+    public void loadAnalysisFileIntoEditor(File analysisJsonFile) {
+        LOG.info("Opening analysis file: " + analysisJsonFile.getAbsolutePath());
         try {
-            ProjectModel loaded = JsonIO.load(f);
-            model.copyFrom(loaded);
-            currentFile = f;
-            setTitle("Audio Analysis JSON Editor — " + f.getName());
-            updateFieldsFromModel();
-            selection.clear();
-            loadAudio(new File(model.getAudioPath()), false);
-            statusLabel.setText("Loaded " + f.getName());
+            ProjectModel loaded = musicAnalysisFileRepository.loadFromFile(analysisJsonFile);
+            projectModel.copyFrom(loaded);
+            currentlyOpenedAnalysisFile = analysisJsonFile;
+            setTitle("Audio Analysis JSON Editor — " + analysisJsonFile.getName());
+            refreshToolbarFieldsFromProjectModel();
+            sharedSelectionModel.clearSelection();
+            loadAudioFileForPlayback(new File(projectModel.getAudioPath()), false);
+            applicationStatusLabel.setText("Loaded " + analysisJsonFile.getName());
+            LOG.info("Opened: beats=" + projectModel.getBeats().size()
+                    + " downbeats=" + projectModel.getDownbeats().size()
+                    + " segments=" + projectModel.getSegments().size());
         } catch (Exception ex) {
+            LOG.log(Level.SEVERE, "Failed to open file: " + analysisJsonFile.getAbsolutePath(), ex);
             JOptionPane.showMessageDialog(this, "Failed to open:\n" + ex.getMessage(),
                     "Open error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    private void save(boolean forceChooser) {
-        File target = currentFile;
-        if (forceChooser || target == null) {
+    private void saveCurrentAnalysisFile(boolean forceShowSaveDialog) {
+        LOG.fine("Save requested (forceShowSaveDialog=" + forceShowSaveDialog + ")");
+        File target = currentlyOpenedAnalysisFile;
+        if (forceShowSaveDialog || target == null) {
             JFileChooser fc = new JFileChooser();
             fc.setFileFilter(new FileNameExtensionFilter("Analysis JSON (*.json)", "json"));
-            if (currentFile != null) {
-                fc.setSelectedFile(currentFile);
+            if (currentlyOpenedAnalysisFile != null) {
+                fc.setSelectedFile(currentlyOpenedAnalysisFile);
             }
             if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
                 return;
@@ -304,124 +340,145 @@ public class MainFrame extends JFrame {
             }
         }
         try {
-            JsonIO.save(model, target);
-            currentFile = target;
+            musicAnalysisFileRepository.saveToFile(projectModel, target);
+            currentlyOpenedAnalysisFile = target;
             setTitle("Audio Analysis JSON Editor — " + target.getName());
-            statusLabel.setText("Saved " + target.getName());
+            applicationStatusLabel.setText("Saved " + target.getName());
+            LOG.info("Saved analysis file: " + target.getAbsolutePath());
         } catch (Exception ex) {
+            LOG.log(Level.SEVERE, "Failed to save file: " + target.getAbsolutePath(), ex);
             JOptionPane.showMessageDialog(this, "Failed to save:\n" + ex.getMessage(),
                     "Save error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    private boolean confirmDiscard() {
-        if (!model.isDirty()) {
+    private boolean confirmDiscardUnsavedChanges() {
+        if (!projectModel.isDirty()) {
             return true;
         }
         int r = JOptionPane.showConfirmDialog(this,
                 "You have unsaved changes. Save before continuing?",
                 "Unsaved changes", JOptionPane.YES_NO_CANCEL_OPTION);
         if (r == JOptionPane.CANCEL_OPTION) {
+            LOG.fine("Discard-changes dialog: user cancelled");
             return false;
         }
         if (r == JOptionPane.YES_OPTION) {
-            save(false);
+            LOG.fine("Discard-changes dialog: user chose to save first");
+            saveCurrentAnalysisFile(false);
+        } else {
+            LOG.fine("Discard-changes dialog: user chose to discard");
         }
         return true;
     }
 
-    private void browseAudio() {
+    private void showBrowseAudioFileDialog() {
+        LOG.fine("Browse audio file dialog requested");
         JFileChooser fc = new JFileChooser();
         fc.setFileFilter(new FileNameExtensionFilter("WAV audio (*.wav)", "wav"));
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             File f = fc.getSelectedFile();
-            model.setAudioPath(f.getAbsolutePath());
-            pathField.setText(f.getAbsolutePath());
-            loadAudio(f, true);
+            projectModel.setAudioPath(f.getAbsolutePath());
+            audioFilePathTextField.setText(f.getAbsolutePath());
+            loadAudioFileForPlayback(f, true);
         }
     }
 
     /** Load audio for playback; if the path is missing, optionally prompt. */
-    private void loadAudio(File f, boolean userChosen) {
-        if (f == null || f.getPath().isEmpty()) {
+    private void loadAudioFileForPlayback(File audioFile, boolean wasExplicitlyChosenByUser) {
+        if (audioFile == null || audioFile.getPath().isEmpty()) {
             return;
         }
-        if (!f.exists()) {
-            statusLabel.setText("Audio not found: " + f.getPath());
-            if (!userChosen) {
+        if (!audioFile.exists()) {
+            applicationStatusLabel.setText("Audio not found: " + audioFile.getPath());
+            if (!wasExplicitlyChosenByUser) {
                 int r = JOptionPane.showConfirmDialog(this,
-                        "Audio file not found:\n" + f.getPath() + "\n\nBrowse for it?",
+                        "Audio file not found:\n" + audioFile.getPath() + "\n\nBrowse for it?",
                         "Audio missing", JOptionPane.YES_NO_OPTION);
                 if (r == JOptionPane.YES_OPTION) {
-                    browseAudio();
+                    showBrowseAudioFileDialog();
                 }
             }
             return;
         }
-        statusLabel.setText("Decoding audio… " + f.getName());
-        new SwingWorker<Exception, Void>() {
-            @Override
-            protected Exception doInBackground() {
-                try {
-                    audio.load(f);
-                    return null;
-                } catch (Exception ex) {
-                    return ex;
-                }
+        applicationStatusLabel.setText("Decoding audio… " + audioFile.getName());
+        LOG.info("Loading audio for playback: " + audioFile.getAbsolutePath());
+        new AudioFileDecodingWorker(audioFile, pcmWavPlaybackEngine, ex -> {
+            if (ex != null) {
+                LOG.log(Level.WARNING, "Audio load failed: " + audioFile.getAbsolutePath(), ex);
+                applicationStatusLabel.setText("Audio load failed: " + ex.getMessage());
+            } else {
+                applicationStatusLabel.setText("Audio ready: " + audioFile.getName()
+                        + String.format("  (%.1fs)", pcmWavPlaybackEngine.getDurationSeconds()));
+                playbackPositionTimeLabel.setText(
+                        PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0)
+                                + " / " + PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pcmWavPlaybackEngine.getDurationSeconds()));
             }
-
-            @Override
-            protected void done() {
-                Exception ex;
-                try {
-                    ex = get();
-                } catch (Exception e) {
-                    ex = e;
-                }
-                if (ex != null) {
-                    statusLabel.setText("Audio load failed: " + ex.getMessage());
-                } else {
-                    statusLabel.setText("Audio ready: " + f.getName()
-                            + String.format("  (%.1fs)", audio.getDurationSeconds()));
-                    timeLabel.setText(fmt(0) + " / " + fmt(audio.getDurationSeconds()));
-                }
-                updatePlayButton();
-            }
-        }.execute();
+            refreshPlayPauseButtonLabel();
+        }).execute();
     }
 
     // ---- small helpers ---------------------------------------------------
 
-    private void commitBpm() {
+    private void commitBeatsPerMinuteFieldValueToModel() {
         try {
-            double v = Double.parseDouble(bpmField.getText().trim());
-            if (v != model.getBpm()) {
-                model.setBpm(v);
+            double v = Double.parseDouble(beatsPerMinuteTextField.getText().trim());
+            if (v != projectModel.getBpm()) {
+                LOG.fine("BPM changed: " + projectModel.getBpm() + " -> " + v);
+                projectModel.setBpm(v);
             }
         } catch (NumberFormatException ex) {
-            bpmField.setText(trimNum(model.getBpm()));
+            LOG.warning("Invalid BPM value entered: " + beatsPerMinuteTextField.getText());
+            beatsPerMinuteTextField.setText(formatNumericValueOmittingTrailingZero(projectModel.getBpm()));
         }
     }
 
-    private void updateFieldsFromModel() {
-        bpmField.setText(trimNum(model.getBpm()));
-        pathField.setText(model.getAudioPath());
+    private void refreshToolbarFieldsFromProjectModel() {
+        beatsPerMinuteTextField.setText(formatNumericValueOmittingTrailingZero(projectModel.getBpm()));
+        audioFilePathTextField.setText(projectModel.getAudioPath());
     }
 
-    private void updatePlayButton() {
-        playBtn.setText(audio.isPlaying() ? "❚❚ Pause" : "▶ Play");
+    private void refreshPlayPauseButtonLabel() {
+        playPauseButton.setText(pcmWavPlaybackEngine.isPlaying() ? "❚❚ Pause" : "▶ Play");
     }
 
-    private static String trimNum(double v) {
-        return v == Math.rint(v) ? Long.toString((long) v) : Double.toString(v);
+    private static String formatNumericValueOmittingTrailingZero(double numericValue) {
+        return numericValue == Math.rint(numericValue) ? Long.toString((long) numericValue) : Double.toString(numericValue);
     }
 
-    private static String fmt(double seconds) {
-        if (seconds < 0) {
-            seconds = 0;
+    /** Decodes a WAV file off the EDT, reporting success/failure via a callback. */
+    private static final class AudioFileDecodingWorker extends SwingWorker<Exception, Void> {
+        private final File audioFileToLoad;
+        private final PcmWavPlaybackEngine playbackEngine;
+        private final Consumer<Exception> onCompletionCallback;
+
+        AudioFileDecodingWorker(File audioFileToLoad,
+                                PcmWavPlaybackEngine playbackEngine,
+                                Consumer<Exception> onCompletionCallback) {
+            this.audioFileToLoad = audioFileToLoad;
+            this.playbackEngine = playbackEngine;
+            this.onCompletionCallback = onCompletionCallback;
         }
-        int m = (int) (seconds / 60);
-        double s = seconds - m * 60;
-        return String.format("%d:%04.1f", m, s);
+
+        @Override
+        protected Exception doInBackground() {
+            try {
+                playbackEngine.loadAndDecodeWavFile(audioFileToLoad);
+                return null;
+            } catch (Exception ex) {
+                return ex;
+            }
+        }
+
+        @Override
+        protected void done() {
+            Exception ex;
+            try {
+                ex = get();
+            } catch (Exception e) {
+                ex = e;
+            }
+            onCompletionCallback.accept(ex);
+        }
     }
 }

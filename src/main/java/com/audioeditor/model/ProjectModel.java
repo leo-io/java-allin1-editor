@@ -13,47 +13,47 @@ import java.util.Map;
  *
  * <p>Holds the audio path, BPM, the merged beat list (time + bar position),
  * the downbeat times, and the segments. Any unrecognised top-level JSON keys
- * are preserved verbatim in {@link #extraFields} so a save never drops data.
+ * are preserved verbatim in {@link #unmodelledJsonFields} so a save never drops data.
  *
- * <p>Every mutation marks the model dirty and notifies {@link Listener}s so the
+ * <p>Every mutation marks the model dirty and notifies {@link ProjectChangeListener}s so the
  * timeline, the CRUD tables and the playhead stay synchronized in real time.
  */
 public class ProjectModel {
 
     /** Notified whenever any property of the model changes. */
-    public interface Listener {
+    public interface ProjectChangeListener {
         void modelChanged();
     }
 
-    private String audioPath = "";
-    private double bpm = 0;
-    private final List<Beat> beats = new ArrayList<>();
-    private final List<Double> downbeats = new ArrayList<>();
-    private final List<Segment> segments = new ArrayList<>();
+    private String referencedAudioFilePath = "";
+    private double beatsPerMinute = 0;
+    private final List<Beat> beatList = new ArrayList<>();
+    private final List<Double> downbeatTimeList = new ArrayList<>();
+    private final List<Segment> segmentList = new ArrayList<>();
 
     /** Top-level JSON keys we don't model explicitly, kept for round-trip fidelity. */
-    private final Map<String, JsonNode> extraFields = new LinkedHashMap<>();
+    private final Map<String, JsonNode> unmodelledJsonFields = new LinkedHashMap<>();
 
-    private final List<Listener> listeners = new ArrayList<>();
-    private boolean dirty = false;
+    private final List<ProjectChangeListener> projectChangeListeners = new ArrayList<>();
+    private boolean hasUnsavedChanges = false;
 
-    private final List<String> labelVocabulary = new ArrayList<>(List.of(
+    private final List<String> knownSegmentLabelVocabulary = new ArrayList<>(List.of(
             "intro", "verse", "chorus", "bridge", "break", "outro", "end"));
 
     // ---- listeners -------------------------------------------------------
 
-    public void addListener(Listener l) {
-        listeners.add(l);
+    public void addProjectChangeListener(ProjectChangeListener listener) {
+        projectChangeListeners.add(listener);
     }
 
-    public void removeListener(Listener l) {
-        listeners.remove(l);
+    public void removeProjectChangeListener(ProjectChangeListener listener) {
+        projectChangeListeners.remove(listener);
     }
 
     /** Fire a change notification (call after any external mutation). */
-    public void fireChanged() {
-        dirty = true;
-        for (Listener l : new ArrayList<>(listeners)) {
+    public void notifyAllProjectChangeListeners() {
+        hasUnsavedChanges = true;
+        for (ProjectChangeListener l : new ArrayList<>(projectChangeListeners)) {
             l.modelChanged();
         }
     }
@@ -61,118 +61,118 @@ public class ProjectModel {
     // ---- scalars ---------------------------------------------------------
 
     public String getAudioPath() {
-        return audioPath;
+        return referencedAudioFilePath;
     }
 
     public void setAudioPath(String audioPath) {
-        this.audioPath = audioPath == null ? "" : audioPath;
-        fireChanged();
+        this.referencedAudioFilePath = audioPath == null ? "" : audioPath;
+        notifyAllProjectChangeListeners();
     }
 
     public double getBpm() {
-        return bpm;
+        return beatsPerMinute;
     }
 
     public void setBpm(double bpm) {
-        this.bpm = bpm;
-        fireChanged();
+        this.beatsPerMinute = bpm;
+        notifyAllProjectChangeListeners();
     }
 
     public Map<String, JsonNode> getExtraFields() {
-        return extraFields;
+        return unmodelledJsonFields;
     }
 
     public List<String> getLabelVocabulary() {
-        return labelVocabulary;
+        return knownSegmentLabelVocabulary;
     }
 
     public void rememberLabel(String label) {
-        if (label != null && !label.isBlank() && !labelVocabulary.contains(label)) {
-            labelVocabulary.add(label);
+        if (label != null && !label.isBlank() && !knownSegmentLabelVocabulary.contains(label)) {
+            knownSegmentLabelVocabulary.add(label);
         }
     }
 
     // ---- beats -----------------------------------------------------------
 
     public List<Beat> getBeats() {
-        return beats;
+        return beatList;
     }
 
     public void addBeat(Beat b) {
-        beats.add(b);
-        fireChanged();
+        beatList.add(b);
+        notifyAllProjectChangeListeners();
     }
 
     public void removeBeat(int index) {
-        if (index >= 0 && index < beats.size()) {
-            beats.remove(index);
-            fireChanged();
+        if (index >= 0 && index < beatList.size()) {
+            beatList.remove(index);
+            notifyAllProjectChangeListeners();
         }
     }
 
     public void moveBeat(int from, int to) {
-        move(beats, from, to);
+        move(beatList, from, to);
     }
 
     /** Sort beats ascending by time (keeps table/timeline consistent). */
     public void sortBeats() {
-        beats.sort(Comparator.comparingDouble(Beat::getTime));
-        fireChanged();
+        beatList.sort(Comparator.comparingDouble(Beat::getTime));
+        notifyAllProjectChangeListeners();
     }
 
     // ---- downbeats -------------------------------------------------------
 
     public List<Double> getDownbeats() {
-        return downbeats;
+        return downbeatTimeList;
     }
 
     public void addDownbeat(double t) {
-        downbeats.add(t);
-        fireChanged();
+        downbeatTimeList.add(t);
+        notifyAllProjectChangeListeners();
     }
 
     public void removeDownbeat(int index) {
-        if (index >= 0 && index < downbeats.size()) {
-            downbeats.remove(index);
-            fireChanged();
+        if (index >= 0 && index < downbeatTimeList.size()) {
+            downbeatTimeList.remove(index);
+            notifyAllProjectChangeListeners();
         }
     }
 
     public void moveDownbeat(int from, int to) {
-        move(downbeats, from, to);
+        move(downbeatTimeList, from, to);
     }
 
     public void sortDownbeats() {
-        downbeats.sort(Comparator.naturalOrder());
-        fireChanged();
+        downbeatTimeList.sort(Comparator.naturalOrder());
+        notifyAllProjectChangeListeners();
     }
 
     // ---- segments --------------------------------------------------------
 
     public List<Segment> getSegments() {
-        return segments;
+        return segmentList;
     }
 
     public void addSegment(Segment s) {
-        segments.add(s);
+        segmentList.add(s);
         rememberLabel(s.getLabel());
-        fireChanged();
+        notifyAllProjectChangeListeners();
     }
 
     public void removeSegment(int index) {
-        if (index >= 0 && index < segments.size()) {
-            segments.remove(index);
-            fireChanged();
+        if (index >= 0 && index < segmentList.size()) {
+            segmentList.remove(index);
+            notifyAllProjectChangeListeners();
         }
     }
 
     public void moveSegment(int from, int to) {
-        move(segments, from, to);
+        move(segmentList, from, to);
     }
 
     public void sortSegments() {
-        segments.sort(Comparator.comparingDouble(Segment::getStart));
-        fireChanged();
+        segmentList.sort(Comparator.comparingDouble(Segment::getStart));
+        notifyAllProjectChangeListeners();
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -183,43 +183,43 @@ public class ProjectModel {
         }
         T item = list.remove(from);
         list.add(to, item);
-        fireChanged();
+        notifyAllProjectChangeListeners();
     }
 
     /** Largest time referenced anywhere, used to size the timeline. */
     public double getMaxTime() {
         double max = 0;
-        for (Beat b : beats) max = Math.max(max, b.getTime());
-        for (Double d : downbeats) max = Math.max(max, d);
-        for (Segment s : segments) max = Math.max(max, s.getEnd());
+        for (Beat b : beatList) max = Math.max(max, b.getTime());
+        for (Double d : downbeatTimeList) max = Math.max(max, d);
+        for (Segment s : segmentList) max = Math.max(max, s.getEnd());
         return max;
     }
 
     public boolean isDirty() {
-        return dirty;
+        return hasUnsavedChanges;
     }
 
     public void setDirty(boolean dirty) {
-        this.dirty = dirty;
+        this.hasUnsavedChanges = dirty;
     }
 
     /** Replace all contents from another freshly-loaded model (used on Open). */
     public void copyFrom(ProjectModel other) {
-        this.audioPath = other.audioPath;
-        this.bpm = other.bpm;
-        this.beats.clear();
-        this.beats.addAll(other.beats);
-        this.downbeats.clear();
-        this.downbeats.addAll(other.downbeats);
-        this.segments.clear();
-        this.segments.addAll(other.segments);
-        this.extraFields.clear();
-        this.extraFields.putAll(other.extraFields);
-        for (Segment s : segments) {
+        this.referencedAudioFilePath = other.referencedAudioFilePath;
+        this.beatsPerMinute = other.beatsPerMinute;
+        this.beatList.clear();
+        this.beatList.addAll(other.beatList);
+        this.downbeatTimeList.clear();
+        this.downbeatTimeList.addAll(other.downbeatTimeList);
+        this.segmentList.clear();
+        this.segmentList.addAll(other.segmentList);
+        this.unmodelledJsonFields.clear();
+        this.unmodelledJsonFields.putAll(other.unmodelledJsonFields);
+        for (Segment s : segmentList) {
             rememberLabel(s.getLabel());
         }
-        dirty = false;
-        fireChanged();
-        dirty = false;
+        hasUnsavedChanges = false;
+        notifyAllProjectChangeListeners();
+        hasUnsavedChanges = false;
     }
 }

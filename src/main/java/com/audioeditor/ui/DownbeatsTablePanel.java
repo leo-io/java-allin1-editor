@@ -1,6 +1,6 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.AudioEngine;
+import com.audioeditor.audio.PcmWavPlaybackEngine;
 import com.audioeditor.model.ProjectModel;
 
 import javax.swing.JButton;
@@ -11,46 +11,51 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.logging.Logger;
 
 /**
  * CRUD table for downbeat times, with add / delete / duplicate / reorder / sort
  * and selection synced to the timeline.
  */
-public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener, SelectionModel.Listener {
+public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
+
+    private static final Logger LOG = Logger.getLogger(DownbeatsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final AudioEngine audio;
+    private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
     private final JTable table;
-    private final DbTableModel tableModel;
-    private boolean syncing = false;
+    private final DownbeatMarkerTableModel tableModel;
+    private boolean isSuppressingSelectionFeedback = false;
 
-    public DownbeatsTablePanel(ProjectModel model, AudioEngine audio, SelectionModel selection) {
+    public DownbeatsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
         this.audio = audio;
         this.selection = selection;
-        this.tableModel = new DbTableModel();
+        this.tableModel = new DownbeatMarkerTableModel();
         this.table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
 
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (syncing || e.getValueIsAdjusting()) {
+            if (isSuppressingSelectionFeedback || e.getValueIsAdjusting()) {
                 return;
             }
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getDownbeats().size()) {
-                selection.set(SelectionModel.Kind.DOWNBEAT, row);
-                audio.seekSeconds(model.getDownbeats().get(row));
+                selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, row);
+                double t = model.getDownbeats().get(row);
+                LOG.fine("Downbeats table: selected row " + row + " (downbeat at " + t + "s), seeking");
+                audio.seekSeconds(t);
             }
         });
 
         add(new JScrollPane(table), BorderLayout.CENTER);
         add(buildButtons(), BorderLayout.SOUTH);
 
-        model.addListener(this);
-        selection.addListener(this);
+        model.addProjectChangeListener(this);
+        selection.addSelectionChangeListener(this);
     }
 
     private JPanel buildButtons() {
@@ -66,30 +71,37 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener
             double t = row >= 0 ? model.getDownbeats().get(row) + 1.0
                     : (audio.isLoaded() ? audio.getPositionSeconds() : 0);
             model.addDownbeat(t);
-            selection.set(SelectionModel.Kind.DOWNBEAT, model.getDownbeats().size() - 1);
+            selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, model.getDownbeats().size() - 1);
+            LOG.fine("Downbeats table: added downbeat at " + t + "s");
         });
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
                 model.removeDownbeat(row);
-                selectRow(Math.min(row, model.getDownbeats().size() - 1));
+                selectTableRowAndBroadcastSelection(Math.min(row, model.getDownbeats().size() - 1));
+                LOG.fine("Downbeats table: deleted downbeat row " + row);
             }
         });
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row > 0) {
                 model.moveDownbeat(row, row - 1);
-                selectRow(row - 1);
+                selectTableRowAndBroadcastSelection(row - 1);
+                LOG.fine("Downbeats table: moved downbeat row " + row + " up");
             }
         });
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getDownbeats().size() - 1) {
                 model.moveDownbeat(row, row + 1);
-                selectRow(row + 1);
+                selectTableRowAndBroadcastSelection(row + 1);
+                LOG.fine("Downbeats table: moved downbeat row " + row + " down");
             }
         });
-        sort.addActionListener(a -> model.sortDownbeats());
+        sort.addActionListener(a -> {
+            model.sortDownbeats();
+            LOG.fine("Downbeats table: sorted");
+        });
 
         p.add(add);
         p.add(del);
@@ -99,9 +111,9 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener
         return p;
     }
 
-    private void selectRow(int row) {
-        if (row >= 0 && row < model.getDownbeats().size()) {
-            selection.set(SelectionModel.Kind.DOWNBEAT, row);
+    private void selectTableRowAndBroadcastSelection(int rowIndex) {
+        if (rowIndex >= 0 && rowIndex < model.getDownbeats().size()) {
+            selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, rowIndex);
         }
     }
 
@@ -110,28 +122,28 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener
         int sel = table.getSelectedRow();
         tableModel.fireTableDataChanged();
         if (sel >= 0 && sel < tableModel.getRowCount()) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(sel, sel);
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
     @Override
     public void selectionChanged() {
-        if (selection.getKind() != SelectionModel.Kind.DOWNBEAT) {
+        if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.DOWNBEAT) {
             return;
         }
-        int i = selection.getIndex();
+        int i = selection.getSelectedItemIndex();
         if (i >= 0 && i < tableModel.getRowCount() && table.getSelectedRow() != i) {
-            syncing = true;
+            isSuppressingSelectionFeedback = true;
             table.setRowSelectionInterval(i, i);
             table.scrollRectToVisible(table.getCellRect(i, 0, true));
-            syncing = false;
+            isSuppressingSelectionFeedback = false;
         }
     }
 
-    private class DbTableModel extends AbstractTableModel {
-        private final String[] cols = {"#", "Time (s)"};
+    private class DownbeatMarkerTableModel extends AbstractTableModel {
+        private final String[] columnHeaderNames = {"#", "Time (s)"};
 
         @Override
         public int getRowCount() {
@@ -140,12 +152,12 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener
 
         @Override
         public int getColumnCount() {
-            return cols.length;
+            return columnHeaderNames.length;
         }
 
         @Override
         public String getColumnName(int c) {
-            return cols[c];
+            return columnHeaderNames[c];
         }
 
         @Override
@@ -168,7 +180,8 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.Listener
             if (c == 1) {
                 try {
                     model.getDownbeats().set(r, Math.max(0, Double.parseDouble(v.toString())));
-                    model.fireChanged();
+                    model.notifyAllProjectChangeListeners();
+                    LOG.fine("Downbeats table: edited row " + r + " time = " + v);
                 } catch (NumberFormatException ignored) {
                 }
             }

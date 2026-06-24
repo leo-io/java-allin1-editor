@@ -13,26 +13,38 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Loads and saves the analysis JSON, mapping the parallel {@code beats} /
  * {@code beat_positions} arrays to a single editable beat list and back, and
  * preserving any unmodelled top-level keys for faithful round-tripping.
+ *
+ * <p>Exposed as a singleton {@link #INSTANCE} implementing
+ * {@link MusicAnalysisFileRepository} so callers depend on the interface, not
+ * on Jackson.
  */
-public final class JsonIO {
+public final class AllIn1JsonFileRepository implements MusicAnalysisFileRepository {
+
+    public static final AllIn1JsonFileRepository INSTANCE = new AllIn1JsonFileRepository();
+
+    private static final Logger LOG = Logger.getLogger(AllIn1JsonFileRepository.class.getName());
 
     /** Keys this editor models explicitly; everything else is preserved as-is. */
-    private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
+    private static final Set<String> EXPLICITLY_MODELLED_JSON_KEYS = Set.of(
             "path", "bpm", "beats", "beat_positions", "downbeats", "segments");
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
+    private static final ObjectMapper JSON_OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
 
-    private JsonIO() {
+    private AllIn1JsonFileRepository() {
     }
 
-    public static ProjectModel load(File file) throws IOException {
-        JsonNode root = MAPPER.readTree(file);
+    @Override
+    public ProjectModel loadFromFile(File analysisJsonFile) throws IOException {
+        LOG.info("Loading: " + analysisJsonFile.getAbsolutePath());
+        JsonNode root = JSON_OBJECT_MAPPER.readTree(analysisJsonFile);
         ProjectModel model = new ProjectModel();
 
         if (root.hasNonNull("path")) {
@@ -76,22 +88,26 @@ public final class JsonIO {
         Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> e = fields.next();
-            if (!KNOWN_KEYS.contains(e.getKey())) {
+            if (!EXPLICITLY_MODELLED_JSON_KEYS.contains(e.getKey())) {
                 model.getExtraFields().put(e.getKey(), e.getValue());
             }
         }
 
         model.setDirty(false);
+        LOG.fine(String.format("Loaded: beats=%d downbeats=%d segments=%d",
+                model.getBeats().size(), model.getDownbeats().size(), model.getSegments().size()));
         return model;
     }
 
-    public static void save(ProjectModel model, File file) throws IOException {
-        ObjectNode root = MAPPER.createObjectNode();
+    @Override
+    public void saveToFile(ProjectModel projectModel, File targetFile) throws IOException {
+        LOG.info("Saving: " + targetFile.getAbsolutePath());
+        ObjectNode root = JSON_OBJECT_MAPPER.createObjectNode();
 
-        root.put("path", model.getAudioPath());
+        root.put("path", projectModel.getAudioPath());
 
         // Emit BPM as an integer when it is whole (matches analyzer output).
-        double bpm = model.getBpm();
+        double bpm = projectModel.getBpm();
         if (bpm == Math.rint(bpm) && !Double.isInfinite(bpm)) {
             root.put("bpm", (long) bpm);
         } else {
@@ -100,35 +116,36 @@ public final class JsonIO {
 
         ArrayNode beatsArr = root.putArray("beats");
         ArrayNode posArr = root.putArray("beat_positions");
-        for (Beat b : model.getBeats()) {
-            beatsArr.add(round(b.getTime()));
+        for (Beat b : projectModel.getBeats()) {
+            beatsArr.add(roundToMillisecondPrecision(b.getTime()));
             posArr.add(b.getPosition());
         }
 
         ArrayNode downArr = root.putArray("downbeats");
-        for (Double d : model.getDownbeats()) {
-            downArr.add(round(d));
+        for (Double d : projectModel.getDownbeats()) {
+            downArr.add(roundToMillisecondPrecision(d));
         }
 
         ArrayNode segArr = root.putArray("segments");
-        for (Segment s : model.getSegments()) {
+        for (Segment s : projectModel.getSegments()) {
             ObjectNode o = segArr.addObject();
-            o.put("start", round(s.getStart()));
-            o.put("end", round(s.getEnd()));
+            o.put("start", roundToMillisecondPrecision(s.getStart()));
+            o.put("end", roundToMillisecondPrecision(s.getEnd()));
             o.put("label", s.getLabel());
         }
 
         // Re-emit any preserved unknown keys.
-        for (Map.Entry<String, JsonNode> e : model.getExtraFields().entrySet()) {
+        for (Map.Entry<String, JsonNode> e : projectModel.getExtraFields().entrySet()) {
             root.set(e.getKey(), e.getValue());
         }
 
-        MAPPER.writerWithDefaultPrettyPrinter().writeValue(file, root);
-        model.setDirty(false);
+        JSON_OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(targetFile, root);
+        projectModel.setDirty(false);
+        LOG.fine("Saved successfully");
     }
 
     /** Round to millisecond precision to avoid float noise in the output. */
-    private static double round(double v) {
-        return Math.round(v * 1000.0) / 1000.0;
+    private double roundToMillisecondPrecision(double valueInSeconds) {
+        return Math.round(valueInSeconds * 1000.0) / 1000.0;
     }
 }
