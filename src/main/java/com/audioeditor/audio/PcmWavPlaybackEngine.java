@@ -44,6 +44,8 @@ public class PcmWavPlaybackEngine {
     // Published by the pump after each write so the EDT never touches the line monitor.
     private volatile long lastRenderedAudioFrame = 0;
 
+    // Monitor used to wake the pump thread from its idle wait when play/seek is requested.
+    private final Object pumpWaitLock = new Object();
     private final MetronomeClickSynthesizer metronomeClickSynthesizer = new MetronomeClickSynthesizer();
     private PlaybackCompletionListener playbackCompletionListener;
 
@@ -164,10 +166,12 @@ public class PcmWavPlaybackEngine {
                     playbackIsActive = false;
                     lastRenderedAudioFrame = nextWriteCursorFrame; // line stopped; queue drained
                 }
-                try {
-                    Thread.sleep(5);
-                } catch (InterruptedException e) {
-                    return;
+                synchronized (pumpWaitLock) {
+                    try {
+                        pumpWaitLock.wait(50); // woken early by play() / seekSeconds() / close()
+                    } catch (InterruptedException e) {
+                        return;
+                    }
                 }
             }
         }
@@ -181,6 +185,7 @@ public class PcmWavPlaybackEngine {
             pendingSeekTargetFrame = 0;
         }
         playbackIsRequested = true;
+        synchronized (pumpWaitLock) { pumpWaitLock.notifyAll(); }
     }
 
     public void pause() {
@@ -206,6 +211,7 @@ public class PcmWavPlaybackEngine {
         }
         long f = (long) (seconds * sampleRateInHz);
         pendingSeekTargetFrame = Math.max(0, Math.min(f, totalAudioFrameCount));
+        synchronized (pumpWaitLock) { pumpWaitLock.notifyAll(); }
     }
 
     /** Truly lock-free playback position: reads only volatile fields, never the line. */
@@ -236,6 +242,7 @@ public class PcmWavPlaybackEngine {
         audioPumpThreadIsRunning = false;
         playbackIsRequested = false;
         playbackIsActive = false;
+        synchronized (pumpWaitLock) { pumpWaitLock.notifyAll(); }
         Thread pumpThreadToStop = audioPumpThread;
         if (pumpThreadToStop != null) {
             pumpThreadToStop.interrupt();
