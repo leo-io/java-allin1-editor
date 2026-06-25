@@ -24,6 +24,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class ProjectModel {
 
+    public static final int BEATS_PER_BAR = 4;
+
     /** Notified whenever any property of the model changes. */
     public interface ProjectChangeListener {
         void modelChanged();
@@ -127,6 +129,154 @@ public class ProjectModel {
     }
 
     /**
+     * Push incomplete edge bars out of the selected segment. This is a local,
+     * low-risk segment-border repair: beat timestamps are not moved, only beat
+     * ownership between the two bars touching a segment boundary.
+     */
+    public boolean shrinkSegmentToFullBarBorders(int segmentIndex) {
+        if (!isValidSegmentIndex(segmentIndex)) {
+            return false;
+        }
+
+        boolean changed = false;
+        if (canMoveFirstFragmentToPreviousSegment(segmentIndex)) {
+            moveFirstFragmentToPreviousSegment(segmentIndex);
+            changed = true;
+        }
+        if (canMoveLastFragmentToNextSegment(segmentIndex)) {
+            moveLastFragmentToNextSegment(segmentIndex);
+            changed = true;
+        }
+
+        if (changed) {
+            normalizeProjectStructure();
+            notifyAllProjectChangeListeners();
+        }
+        return changed;
+    }
+
+    public boolean canShrinkSegmentToFullBarBorders(int segmentIndex) {
+        return canMoveFirstFragmentToPreviousSegment(segmentIndex)
+                || canMoveLastFragmentToNextSegment(segmentIndex);
+    }
+
+    /**
+     * Pull adjacent incomplete edge fragments into the selected segment. This
+     * completes split bars that straddle a segment boundary without changing
+     * any beat timestamps.
+     */
+    public boolean expandSegmentToFullBarBorders(int segmentIndex) {
+        if (!isValidSegmentIndex(segmentIndex)) {
+            return false;
+        }
+
+        boolean changed = false;
+        if (canCompleteFirstFragmentFromPreviousSegment(segmentIndex)) {
+            completeFirstFragmentFromPreviousSegment(segmentIndex);
+            changed = true;
+        }
+        if (canCompleteLastFragmentFromNextSegment(segmentIndex)) {
+            completeLastFragmentFromNextSegment(segmentIndex);
+            changed = true;
+        }
+
+        if (changed) {
+            normalizeProjectStructure();
+            notifyAllProjectChangeListeners();
+        }
+        return changed;
+    }
+
+    public boolean canExpandSegmentToFullBarBorders(int segmentIndex) {
+        return canCompleteFirstFragmentFromPreviousSegment(segmentIndex)
+                || canCompleteLastFragmentFromNextSegment(segmentIndex);
+    }
+
+    public boolean moveFirstBarsFromNextSegment(int segmentIndex, int barCount) {
+        if (!canMoveFirstBarsFromNextSegment(segmentIndex, barCount)) {
+            return false;
+        }
+
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        List<Bar> moved = removeBars(next, 0, barCount);
+        current.getBars().addAll(moved);
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+        return true;
+    }
+
+    public boolean canMoveFirstBarsFromNextSegment(int segmentIndex, int barCount) {
+        if (segmentIndex < 0 || segmentIndex >= segmentList.size() - 1) {
+            return false;
+        }
+        return canTransferBars(segmentList.get(segmentIndex + 1), segmentList.get(segmentIndex), barCount);
+    }
+
+    public boolean moveLastBarsToNextSegment(int segmentIndex, int barCount) {
+        if (!canMoveLastBarsToNextSegment(segmentIndex, barCount)) {
+            return false;
+        }
+
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        List<Bar> moved = removeBars(current, current.getBars().size() - barCount, barCount);
+        next.getBars().addAll(0, moved);
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+        return true;
+    }
+
+    public boolean canMoveLastBarsToNextSegment(int segmentIndex, int barCount) {
+        if (segmentIndex < 0 || segmentIndex >= segmentList.size() - 1) {
+            return false;
+        }
+        return canTransferBars(segmentList.get(segmentIndex), segmentList.get(segmentIndex + 1), barCount);
+    }
+
+    public boolean moveLastBarsFromPreviousSegment(int segmentIndex, int barCount) {
+        if (!canMoveLastBarsFromPreviousSegment(segmentIndex, barCount)) {
+            return false;
+        }
+
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        List<Bar> moved = removeBars(previous, previous.getBars().size() - barCount, barCount);
+        current.getBars().addAll(0, moved);
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+        return true;
+    }
+
+    public boolean canMoveLastBarsFromPreviousSegment(int segmentIndex, int barCount) {
+        if (segmentIndex <= 0 || segmentIndex >= segmentList.size()) {
+            return false;
+        }
+        return canTransferBars(segmentList.get(segmentIndex - 1), segmentList.get(segmentIndex), barCount);
+    }
+
+    public boolean moveFirstBarsToPreviousSegment(int segmentIndex, int barCount) {
+        if (!canMoveFirstBarsToPreviousSegment(segmentIndex, barCount)) {
+            return false;
+        }
+
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        List<Bar> moved = removeBars(current, 0, barCount);
+        previous.getBars().addAll(moved);
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+        return true;
+    }
+
+    public boolean canMoveFirstBarsToPreviousSegment(int segmentIndex, int barCount) {
+        if (segmentIndex <= 0 || segmentIndex >= segmentList.size()) {
+            return false;
+        }
+        return canTransferBars(segmentList.get(segmentIndex), segmentList.get(segmentIndex - 1), barCount);
+    }
+
+    /**
      * Restore ordering and basic timing invariants after low-level edits.
      * Bars/beats are sorted by time, every bar starts with exactly one downbeat,
      * and adjacent beats inside a bar are made contiguous.
@@ -205,6 +355,119 @@ public class ProjectModel {
         T item = list.remove(from);
         list.add(to, item);
         notifyAllProjectChangeListeners();
+    }
+
+    private boolean isValidSegmentIndex(int segmentIndex) {
+        return segmentIndex >= 0 && segmentIndex < segmentList.size();
+    }
+
+    private boolean canMoveFirstFragmentToPreviousSegment(int segmentIndex) {
+        if (segmentIndex <= 0 || segmentIndex >= segmentList.size()) {
+            return false;
+        }
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        return current.getBars().size() > 1
+                && !previous.getBars().isEmpty()
+                && areComplementaryEdgeFragments(lastBar(previous), firstBar(current));
+    }
+
+    private void moveFirstFragmentToPreviousSegment(int segmentIndex) {
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        Bar first = current.getBars().remove(0);
+        lastBar(previous).getBeats().addAll(first.getBeats());
+    }
+
+    private boolean canMoveLastFragmentToNextSegment(int segmentIndex) {
+        if (segmentIndex < 0 || segmentIndex >= segmentList.size() - 1) {
+            return false;
+        }
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        return current.getBars().size() > 1
+                && !next.getBars().isEmpty()
+                && areComplementaryEdgeFragments(lastBar(current), firstBar(next));
+    }
+
+    private void moveLastFragmentToNextSegment(int segmentIndex) {
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        Bar last = current.getBars().remove(current.getBars().size() - 1);
+        firstBar(next).getBeats().addAll(0, last.getBeats());
+    }
+
+    private boolean canCompleteFirstFragmentFromPreviousSegment(int segmentIndex) {
+        if (segmentIndex <= 0 || segmentIndex >= segmentList.size()) {
+            return false;
+        }
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        return previous.getBars().size() > 1
+                && !current.getBars().isEmpty()
+                && areComplementaryEdgeFragments(lastBar(previous), firstBar(current));
+    }
+
+    private void completeFirstFragmentFromPreviousSegment(int segmentIndex) {
+        Segment current = segmentList.get(segmentIndex);
+        Segment previous = segmentList.get(segmentIndex - 1);
+        Bar previousLast = previous.getBars().remove(previous.getBars().size() - 1);
+        firstBar(current).getBeats().addAll(0, previousLast.getBeats());
+    }
+
+    private boolean canCompleteLastFragmentFromNextSegment(int segmentIndex) {
+        if (segmentIndex < 0 || segmentIndex >= segmentList.size() - 1) {
+            return false;
+        }
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        return next.getBars().size() > 1
+                && !current.getBars().isEmpty()
+                && areComplementaryEdgeFragments(lastBar(current), firstBar(next));
+    }
+
+    private void completeLastFragmentFromNextSegment(int segmentIndex) {
+        Segment current = segmentList.get(segmentIndex);
+        Segment next = segmentList.get(segmentIndex + 1);
+        Bar nextFirst = next.getBars().remove(0);
+        lastBar(current).getBeats().addAll(nextFirst.getBeats());
+    }
+
+    private boolean areComplementaryEdgeFragments(Bar left, Bar right) {
+        int leftBeats = left.getBeats().size();
+        int rightBeats = right.getBeats().size();
+        return leftBeats > 0
+                && leftBeats < BEATS_PER_BAR
+                && rightBeats > 0
+                && rightBeats < BEATS_PER_BAR
+                && leftBeats + rightBeats == BEATS_PER_BAR;
+    }
+
+    private boolean canTransferBars(Segment from, Segment to, int barCount) {
+        if (barCount <= 0 || from.getBars().size() < barCount) {
+            return false;
+        }
+        int fromAfter = from.getBars().size() - barCount;
+        int toAfter = to.getBars().size() + barCount;
+        return fromAfter > 0
+                && toAfter > 0
+                && fromAfter % 2 == 0
+                && toAfter % 2 == 0;
+    }
+
+    private List<Bar> removeBars(Segment segment, int fromIndex, int barCount) {
+        List<Bar> bars = segment.getBars();
+        List<Bar> moved = new ArrayList<>(bars.subList(fromIndex, fromIndex + barCount));
+        bars.subList(fromIndex, fromIndex + barCount).clear();
+        return moved;
+    }
+
+    private Bar firstBar(Segment segment) {
+        return segment.getBars().get(0);
+    }
+
+    private Bar lastBar(Segment segment) {
+        return segment.getBars().get(segment.getBars().size() - 1);
     }
 
     /** Largest time referenced anywhere, used to size the timeline. */
