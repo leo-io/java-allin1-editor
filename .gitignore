@@ -17,3 +17,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local music assets and generated repair backups
+music/*.wav
+music/*.json.bak
+music/*.mapping-repair.bak

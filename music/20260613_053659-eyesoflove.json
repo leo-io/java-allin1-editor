@@ -1,0 +1,2246 @@
+{
+  "path" : "C:\\Users\\lssilva30\\pessoal\\code\\java-allin1-editor\\music\\20260613_053659-eyesoflove.wav",
+  "bpm" : 120,
+  "segments" : [ {
+    "label" : "intro",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 0.0,
+        "end" : 0.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 0.2,
+        "end" : 0.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 0.74,
+        "end" : 1.26
+      }, {
+        "isDownbeat" : false,
+        "start" : 1.26,
+        "end" : 1.78
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 1.78,
+        "end" : 2.3
+      }, {
+        "isDownbeat" : false,
+        "start" : 2.3,
+        "end" : 2.81
+      }, {
+        "isDownbeat" : false,
+        "start" : 2.81,
+        "end" : 3.33
+      }, {
+        "isDownbeat" : false,
+        "start" : 3.33,
+        "end" : 3.85
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 3.85,
+        "end" : 4.36
+      }, {
+        "isDownbeat" : false,
+        "start" : 4.36,
+        "end" : 4.87
+      }, {
+        "isDownbeat" : false,
+        "start" : 4.87,
+        "end" : 5.39
+      }, {
+        "isDownbeat" : false,
+        "start" : 5.39,
+        "end" : 5.9
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 5.9,
+        "end" : 6.42
+      }, {
+        "isDownbeat" : false,
+        "start" : 6.42,
+        "end" : 6.93
+      }, {
+        "isDownbeat" : false,
+        "start" : 6.93,
+        "end" : 7.42
+      }, {
+        "isDownbeat" : false,
+        "start" : 7.42,
+        "end" : 7.93
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 7.93,
+        "end" : 8.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 8.44,
+        "end" : 8.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 8.98,
+        "end" : 9.49
+      }, {
+        "isDownbeat" : false,
+        "start" : 9.49,
+        "end" : 9.98
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 9.98,
+        "end" : 10.5
+      }, {
+        "isDownbeat" : false,
+        "start" : 10.5,
+        "end" : 11.0
+      }, {
+        "isDownbeat" : false,
+        "start" : 11.0,
+        "end" : 11.52
+      }, {
+        "isDownbeat" : false,
+        "start" : 11.52,
+        "end" : 12.03
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 12.03,
+        "end" : 12.54
+      }, {
+        "isDownbeat" : false,
+        "start" : 12.54,
+        "end" : 13.03
+      }, {
+        "isDownbeat" : false,
+        "start" : 13.03,
+        "end" : 13.55
+      }, {
+        "isDownbeat" : false,
+        "start" : 13.55,
+        "end" : 14.05
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 14.05,
+        "end" : 14.57
+      }, {
+        "isDownbeat" : false,
+        "start" : 14.57,
+        "end" : 15.08
+      }, {
+        "isDownbeat" : false,
+        "start" : 15.08,
+        "end" : 15.58
+      }, {
+        "isDownbeat" : false,
+        "start" : 15.58,
+        "end" : 16.09
+      } ]
+    } ]
+  }, {
+    "label" : "verse",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 16.09,
+        "end" : 16.61
+      }, {
+        "isDownbeat" : false,
+        "start" : 16.61,
+        "end" : 17.1
+      }, {
+        "isDownbeat" : false,
+        "start" : 17.1,
+        "end" : 17.62
+      }, {
+        "isDownbeat" : false,
+        "start" : 17.62,
+        "end" : 18.13
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 18.13,
+        "end" : 18.64
+      }, {
+        "isDownbeat" : false,
+        "start" : 18.64,
+        "end" : 19.14
+      }, {
+        "isDownbeat" : false,
+        "start" : 19.14,
+        "end" : 19.64
+      }, {
+        "isDownbeat" : false,
+        "start" : 19.64,
+        "end" : 20.16
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 20.16,
+        "end" : 20.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 20.66,
+        "end" : 21.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 21.17,
+        "end" : 21.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 21.68,
+        "end" : 22.17
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 22.17,
+        "end" : 22.69
+      }, {
+        "isDownbeat" : false,
+        "start" : 22.69,
+        "end" : 23.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 23.2,
+        "end" : 23.71
+      }, {
+        "isDownbeat" : false,
+        "start" : 23.71,
+        "end" : 24.22
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 24.22,
+        "end" : 24.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 24.74,
+        "end" : 25.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 25.24,
+        "end" : 25.76
+      }, {
+        "isDownbeat" : false,
+        "start" : 25.76,
+        "end" : 26.26
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 26.26,
+        "end" : 26.76
+      }, {
+        "isDownbeat" : false,
+        "start" : 26.76,
+        "end" : 27.27
+      }, {
+        "isDownbeat" : false,
+        "start" : 27.27,
+        "end" : 27.78
+      }, {
+        "isDownbeat" : false,
+        "start" : 27.78,
+        "end" : 28.27
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 28.27,
+        "end" : 28.79
+      }, {
+        "isDownbeat" : false,
+        "start" : 28.79,
+        "end" : 29.3
+      }, {
+        "isDownbeat" : false,
+        "start" : 29.3,
+        "end" : 29.81
+      }, {
+        "isDownbeat" : false,
+        "start" : 29.81,
+        "end" : 30.31
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 30.31,
+        "end" : 30.81
+      }, {
+        "isDownbeat" : false,
+        "start" : 30.81,
+        "end" : 31.32
+      }, {
+        "isDownbeat" : false,
+        "start" : 31.32,
+        "end" : 31.83
+      }, {
+        "isDownbeat" : false,
+        "start" : 31.83,
+        "end" : 32.33
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 32.33,
+        "end" : 32.83
+      }, {
+        "isDownbeat" : false,
+        "start" : 32.83,
+        "end" : 33.34
+      }, {
+        "isDownbeat" : false,
+        "start" : 33.34,
+        "end" : 33.85
+      }, {
+        "isDownbeat" : false,
+        "start" : 33.85,
+        "end" : 34.35
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 34.35,
+        "end" : 34.87
+      }, {
+        "isDownbeat" : false,
+        "start" : 34.87,
+        "end" : 35.36
+      }, {
+        "isDownbeat" : false,
+        "start" : 35.36,
+        "end" : 35.89
+      }, {
+        "isDownbeat" : false,
+        "start" : 35.89,
+        "end" : 36.39
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 36.39,
+        "end" : 36.9
+      }, {
+        "isDownbeat" : false,
+        "start" : 36.9,
+        "end" : 37.4
+      }, {
+        "isDownbeat" : false,
+        "start" : 37.4,
+        "end" : 37.92
+      }, {
+        "isDownbeat" : false,
+        "start" : 37.92,
+        "end" : 38.41
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 38.41,
+        "end" : 38.92
+      }, {
+        "isDownbeat" : false,
+        "start" : 38.92,
+        "end" : 39.41
+      }, {
+        "isDownbeat" : false,
+        "start" : 39.41,
+        "end" : 39.93
+      }, {
+        "isDownbeat" : false,
+        "start" : 39.93,
+        "end" : 40.43
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 40.43,
+        "end" : 40.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 40.94,
+        "end" : 41.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 41.44,
+        "end" : 41.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 41.95,
+        "end" : 42.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 42.45,
+        "end" : 42.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 42.97,
+        "end" : 43.46
+      }, {
+        "isDownbeat" : false,
+        "start" : 43.46,
+        "end" : 43.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 43.97,
+        "end" : 44.46
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 44.46,
+        "end" : 44.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 44.98,
+        "end" : 45.46
+      }, {
+        "isDownbeat" : false,
+        "start" : 45.46,
+        "end" : 45.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 45.98,
+        "end" : 46.47
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 46.47,
+        "end" : 46.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 46.98,
+        "end" : 47.47
+      }, {
+        "isDownbeat" : false,
+        "start" : 47.47,
+        "end" : 47.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 47.97,
+        "end" : 48.47
+      } ]
+    } ]
+  }, {
+    "label" : "inst",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 48.47,
+        "end" : 48.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 48.97,
+        "end" : 49.49
+      }, {
+        "isDownbeat" : false,
+        "start" : 49.49,
+        "end" : 49.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 49.98,
+        "end" : 50.48
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 50.48,
+        "end" : 50.99
+      }, {
+        "isDownbeat" : false,
+        "start" : 50.99,
+        "end" : 51.47
+      }, {
+        "isDownbeat" : false,
+        "start" : 51.47,
+        "end" : 52.0
+      }, {
+        "isDownbeat" : false,
+        "start" : 52.0,
+        "end" : 52.5
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 52.5,
+        "end" : 53.01
+      }, {
+        "isDownbeat" : false,
+        "start" : 53.01,
+        "end" : 53.53
+      }, {
+        "isDownbeat" : false,
+        "start" : 53.53,
+        "end" : 54.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 54.04,
+        "end" : 54.53
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 54.53,
+        "end" : 55.06
+      }, {
+        "isDownbeat" : false,
+        "start" : 55.06,
+        "end" : 55.56
+      }, {
+        "isDownbeat" : false,
+        "start" : 55.56,
+        "end" : 56.06
+      }, {
+        "isDownbeat" : false,
+        "start" : 56.06,
+        "end" : 56.57
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 56.57,
+        "end" : 57.08
+      }, {
+        "isDownbeat" : false,
+        "start" : 57.08,
+        "end" : 57.6
+      }, {
+        "isDownbeat" : false,
+        "start" : 57.6,
+        "end" : 58.11
+      }, {
+        "isDownbeat" : false,
+        "start" : 58.11,
+        "end" : 58.62
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 58.62,
+        "end" : 59.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 59.13,
+        "end" : 59.63
+      }, {
+        "isDownbeat" : false,
+        "start" : 59.63,
+        "end" : 60.14
+      }, {
+        "isDownbeat" : false,
+        "start" : 60.14,
+        "end" : 60.64
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 60.64,
+        "end" : 61.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 61.15,
+        "end" : 61.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 61.66,
+        "end" : 62.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 62.16,
+        "end" : 62.66
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 62.66,
+        "end" : 63.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 63.17,
+        "end" : 63.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 63.66,
+        "end" : 64.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 64.17,
+        "end" : 64.66
+      } ]
+    } ]
+  }, {
+    "label" : "verse",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 64.66,
+        "end" : 65.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 65.17,
+        "end" : 65.67
+      }, {
+        "isDownbeat" : false,
+        "start" : 65.67,
+        "end" : 66.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 66.19,
+        "end" : 66.68
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 66.68,
+        "end" : 67.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 67.2,
+        "end" : 67.7
+      }, {
+        "isDownbeat" : false,
+        "start" : 67.7,
+        "end" : 68.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 68.2,
+        "end" : 68.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 68.71,
+        "end" : 69.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 69.21,
+        "end" : 69.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 69.73,
+        "end" : 70.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 70.22,
+        "end" : 70.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 70.72,
+        "end" : 71.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 71.22,
+        "end" : 71.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 71.74,
+        "end" : 72.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 72.24,
+        "end" : 72.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 72.74,
+        "end" : 73.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 73.24,
+        "end" : 73.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 73.74,
+        "end" : 74.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 74.24,
+        "end" : 74.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 74.74,
+        "end" : 75.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 75.24,
+        "end" : 75.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 75.73,
+        "end" : 76.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 76.25,
+        "end" : 76.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 76.74,
+        "end" : 77.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 77.25,
+        "end" : 77.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 77.74,
+        "end" : 78.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 78.25,
+        "end" : 78.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 78.74,
+        "end" : 79.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 79.25,
+        "end" : 79.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 79.74,
+        "end" : 80.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 80.25,
+        "end" : 80.75
+      } ]
+    } ]
+  }, {
+    "label" : "verse",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 80.75,
+        "end" : 81.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 81.24,
+        "end" : 81.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 81.74,
+        "end" : 82.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 82.23,
+        "end" : 82.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 82.74,
+        "end" : 83.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 83.24,
+        "end" : 83.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 83.73,
+        "end" : 84.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 84.23,
+        "end" : 84.73
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 84.73,
+        "end" : 85.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 85.23,
+        "end" : 85.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 85.73,
+        "end" : 86.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 86.23,
+        "end" : 86.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 86.72,
+        "end" : 87.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 87.22,
+        "end" : 87.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 87.72,
+        "end" : 88.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 88.23,
+        "end" : 88.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 88.72,
+        "end" : 89.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 89.23,
+        "end" : 89.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 89.72,
+        "end" : 90.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 90.23,
+        "end" : 90.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 90.72,
+        "end" : 91.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 91.24,
+        "end" : 91.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 91.72,
+        "end" : 92.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 92.23,
+        "end" : 92.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 92.72,
+        "end" : 93.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 93.23,
+        "end" : 93.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 93.72,
+        "end" : 94.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 94.22,
+        "end" : 94.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 94.71,
+        "end" : 95.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 95.23,
+        "end" : 95.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 95.72,
+        "end" : 96.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 96.22,
+        "end" : 96.71
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 96.71,
+        "end" : 97.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 97.2,
+        "end" : 97.7
+      }, {
+        "isDownbeat" : false,
+        "start" : 97.7,
+        "end" : 98.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 98.21,
+        "end" : 98.7
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 98.7,
+        "end" : 99.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 99.21,
+        "end" : 99.7
+      }, {
+        "isDownbeat" : false,
+        "start" : 99.7,
+        "end" : 100.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 100.21,
+        "end" : 100.7
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 100.7,
+        "end" : 101.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 101.21,
+        "end" : 101.71
+      }, {
+        "isDownbeat" : false,
+        "start" : 101.71,
+        "end" : 102.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 102.21,
+        "end" : 102.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 102.71,
+        "end" : 103.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 103.21,
+        "end" : 103.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 103.72,
+        "end" : 104.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 104.22,
+        "end" : 104.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 104.72,
+        "end" : 105.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 105.23,
+        "end" : 105.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 105.73,
+        "end" : 106.23
+      }, {
+        "isDownbeat" : false,
+        "start" : 106.23,
+        "end" : 106.73
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 106.73,
+        "end" : 107.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 107.24,
+        "end" : 107.74
+      }, {
+        "isDownbeat" : false,
+        "start" : 107.74,
+        "end" : 108.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 108.25,
+        "end" : 108.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 108.74,
+        "end" : 109.25
+      }, {
+        "isDownbeat" : false,
+        "start" : 109.25,
+        "end" : 109.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 109.73,
+        "end" : 110.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 110.24,
+        "end" : 110.74
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 110.74,
+        "end" : 111.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 111.24,
+        "end" : 111.73
+      }, {
+        "isDownbeat" : false,
+        "start" : 111.73,
+        "end" : 112.24
+      }, {
+        "isDownbeat" : false,
+        "start" : 112.24,
+        "end" : 112.71
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 112.71,
+        "end" : 113.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 113.21,
+        "end" : 113.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 113.72,
+        "end" : 114.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 114.21,
+        "end" : 114.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 114.71,
+        "end" : 115.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 115.21,
+        "end" : 115.7
+      }, {
+        "isDownbeat" : false,
+        "start" : 115.7,
+        "end" : 116.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 116.21,
+        "end" : 116.7
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 116.7,
+        "end" : 117.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 117.2,
+        "end" : 117.69
+      }, {
+        "isDownbeat" : false,
+        "start" : 117.69,
+        "end" : 118.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 118.21,
+        "end" : 118.7
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 118.7,
+        "end" : 119.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 119.2,
+        "end" : 119.69
+      }, {
+        "isDownbeat" : false,
+        "start" : 119.69,
+        "end" : 120.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 120.2,
+        "end" : 120.69
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 120.69,
+        "end" : 121.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 121.19,
+        "end" : 121.71
+      }, {
+        "isDownbeat" : false,
+        "start" : 121.71,
+        "end" : 122.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 122.2,
+        "end" : 122.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 122.71,
+        "end" : 123.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 123.21,
+        "end" : 123.72
+      }, {
+        "isDownbeat" : false,
+        "start" : 123.72,
+        "end" : 124.22
+      }, {
+        "isDownbeat" : false,
+        "start" : 124.22,
+        "end" : 124.72
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 124.72,
+        "end" : 125.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 125.21,
+        "end" : 125.71
+      }, {
+        "isDownbeat" : false,
+        "start" : 125.71,
+        "end" : 126.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 126.21,
+        "end" : 126.7
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 126.7,
+        "end" : 127.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 127.2,
+        "end" : 127.69
+      }, {
+        "isDownbeat" : false,
+        "start" : 127.69,
+        "end" : 128.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 128.19,
+        "end" : 128.67
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 128.67,
+        "end" : 129.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 129.17,
+        "end" : 129.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 129.68,
+        "end" : 130.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 130.19,
+        "end" : 130.68
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 130.68,
+        "end" : 131.18
+      }, {
+        "isDownbeat" : false,
+        "start" : 131.18,
+        "end" : 131.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 131.68,
+        "end" : 132.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 132.19,
+        "end" : 132.69
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 132.69,
+        "end" : 133.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 133.19,
+        "end" : 133.69
+      }, {
+        "isDownbeat" : false,
+        "start" : 133.69,
+        "end" : 134.21
+      }, {
+        "isDownbeat" : false,
+        "start" : 134.21,
+        "end" : 134.71
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 134.71,
+        "end" : 135.2
+      }, {
+        "isDownbeat" : false,
+        "start" : 135.2,
+        "end" : 135.7
+      }, {
+        "isDownbeat" : false,
+        "start" : 135.7,
+        "end" : 136.18
+      }, {
+        "isDownbeat" : false,
+        "start" : 136.18,
+        "end" : 136.69
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 136.69,
+        "end" : 137.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 137.19,
+        "end" : 137.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 137.68,
+        "end" : 138.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 138.17,
+        "end" : 138.68
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 138.68,
+        "end" : 139.19
+      }, {
+        "isDownbeat" : false,
+        "start" : 139.19,
+        "end" : 139.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 139.68,
+        "end" : 140.18
+      }, {
+        "isDownbeat" : false,
+        "start" : 140.18,
+        "end" : 140.68
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 140.68,
+        "end" : 141.18
+      }, {
+        "isDownbeat" : false,
+        "start" : 141.18,
+        "end" : 141.68
+      }, {
+        "isDownbeat" : false,
+        "start" : 141.68,
+        "end" : 142.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 142.17,
+        "end" : 142.68
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 142.68,
+        "end" : 143.17
+      }, {
+        "isDownbeat" : false,
+        "start" : 143.17,
+        "end" : 143.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 143.66,
+        "end" : 144.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 144.16,
+        "end" : 144.66
+      } ]
+    } ]
+  }, {
+    "label" : "solo",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 144.66,
+        "end" : 145.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 145.16,
+        "end" : 145.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 145.66,
+        "end" : 146.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 146.16,
+        "end" : 146.66
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 146.66,
+        "end" : 147.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 147.16,
+        "end" : 147.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 147.66,
+        "end" : 148.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 148.16,
+        "end" : 148.67
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 148.67,
+        "end" : 149.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 149.16,
+        "end" : 149.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 149.66,
+        "end" : 150.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 150.16,
+        "end" : 150.66
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 150.66,
+        "end" : 151.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 151.15,
+        "end" : 151.65
+      }, {
+        "isDownbeat" : false,
+        "start" : 151.65,
+        "end" : 152.14
+      }, {
+        "isDownbeat" : false,
+        "start" : 152.14,
+        "end" : 152.65
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 152.65,
+        "end" : 153.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 153.15,
+        "end" : 153.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 153.66,
+        "end" : 154.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 154.16,
+        "end" : 154.65
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 154.65,
+        "end" : 155.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 155.16,
+        "end" : 155.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 155.66,
+        "end" : 156.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 156.16,
+        "end" : 156.66
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 156.66,
+        "end" : 157.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 157.16,
+        "end" : 157.66
+      }, {
+        "isDownbeat" : false,
+        "start" : 157.66,
+        "end" : 158.16
+      }, {
+        "isDownbeat" : false,
+        "start" : 158.16,
+        "end" : 158.65
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 158.65,
+        "end" : 159.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 159.15,
+        "end" : 159.65
+      }, {
+        "isDownbeat" : false,
+        "start" : 159.65,
+        "end" : 160.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 160.15,
+        "end" : 160.65
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 160.65,
+        "end" : 161.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 161.15,
+        "end" : 161.65
+      }, {
+        "isDownbeat" : false,
+        "start" : 161.65,
+        "end" : 162.15
+      }, {
+        "isDownbeat" : false,
+        "start" : 162.15,
+        "end" : 162.64
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 162.64,
+        "end" : 163.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 163.13,
+        "end" : 163.63
+      }, {
+        "isDownbeat" : false,
+        "start" : 163.63,
+        "end" : 164.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 164.13,
+        "end" : 164.63
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 164.63,
+        "end" : 165.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 165.13,
+        "end" : 165.64
+      }, {
+        "isDownbeat" : false,
+        "start" : 165.64,
+        "end" : 166.14
+      }, {
+        "isDownbeat" : false,
+        "start" : 166.14,
+        "end" : 166.63
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 166.63,
+        "end" : 167.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 167.13,
+        "end" : 167.63
+      }, {
+        "isDownbeat" : false,
+        "start" : 167.63,
+        "end" : 168.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 168.12,
+        "end" : 168.63
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 168.63,
+        "end" : 169.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 169.12,
+        "end" : 169.62
+      }, {
+        "isDownbeat" : false,
+        "start" : 169.62,
+        "end" : 170.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 170.12,
+        "end" : 170.62
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 170.62,
+        "end" : 171.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 171.12,
+        "end" : 171.62
+      }, {
+        "isDownbeat" : false,
+        "start" : 171.62,
+        "end" : 172.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 172.12,
+        "end" : 172.62
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 172.62,
+        "end" : 173.13
+      }, {
+        "isDownbeat" : false,
+        "start" : 173.13,
+        "end" : 173.62
+      }, {
+        "isDownbeat" : false,
+        "start" : 173.62,
+        "end" : 174.12
+      }, {
+        "isDownbeat" : false,
+        "start" : 174.12,
+        "end" : 174.61
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 174.61,
+        "end" : 175.09
+      }, {
+        "isDownbeat" : false,
+        "start" : 175.09,
+        "end" : 175.59
+      }, {
+        "isDownbeat" : false,
+        "start" : 175.59,
+        "end" : 176.08
+      }, {
+        "isDownbeat" : false,
+        "start" : 176.08,
+        "end" : 176.55
+      } ]
+    } ]
+  }, {
+    "label" : "inst",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 176.55,
+        "end" : 177.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 177.04,
+        "end" : 177.54
+      }, {
+        "isDownbeat" : false,
+        "start" : 177.54,
+        "end" : 178.05
+      }, {
+        "isDownbeat" : false,
+        "start" : 178.05,
+        "end" : 178.54
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 178.54,
+        "end" : 179.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 179.04,
+        "end" : 179.53
+      }, {
+        "isDownbeat" : false,
+        "start" : 179.53,
+        "end" : 180.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 180.04,
+        "end" : 180.54
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 180.54,
+        "end" : 181.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 181.04,
+        "end" : 181.53
+      }, {
+        "isDownbeat" : false,
+        "start" : 181.53,
+        "end" : 182.05
+      }, {
+        "isDownbeat" : false,
+        "start" : 182.05,
+        "end" : 182.54
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 182.54,
+        "end" : 183.04
+      }, {
+        "isDownbeat" : false,
+        "start" : 183.04,
+        "end" : 183.54
+      }, {
+        "isDownbeat" : false,
+        "start" : 183.54,
+        "end" : 184.02
+      }, {
+        "isDownbeat" : false,
+        "start" : 184.02,
+        "end" : 184.52
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 184.52,
+        "end" : 185.02
+      }, {
+        "isDownbeat" : false,
+        "start" : 185.02,
+        "end" : 185.53
+      }, {
+        "isDownbeat" : false,
+        "start" : 185.53,
+        "end" : 186.03
+      }, {
+        "isDownbeat" : false,
+        "start" : 186.03,
+        "end" : 186.53
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 186.53,
+        "end" : 187.03
+      }, {
+        "isDownbeat" : false,
+        "start" : 187.03,
+        "end" : 187.52
+      }, {
+        "isDownbeat" : false,
+        "start" : 187.52,
+        "end" : 188.02
+      }, {
+        "isDownbeat" : false,
+        "start" : 188.02,
+        "end" : 188.52
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 188.52,
+        "end" : 189.01
+      }, {
+        "isDownbeat" : false,
+        "start" : 189.01,
+        "end" : 189.51
+      }, {
+        "isDownbeat" : false,
+        "start" : 189.51,
+        "end" : 190.01
+      }, {
+        "isDownbeat" : false,
+        "start" : 190.01,
+        "end" : 190.5
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 190.5,
+        "end" : 191.0
+      }, {
+        "isDownbeat" : false,
+        "start" : 191.0,
+        "end" : 191.5
+      }, {
+        "isDownbeat" : false,
+        "start" : 191.5,
+        "end" : 191.99
+      }, {
+        "isDownbeat" : false,
+        "start" : 191.99,
+        "end" : 192.48
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 192.48,
+        "end" : 192.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 192.97,
+        "end" : 193.48
+      }, {
+        "isDownbeat" : false,
+        "start" : 193.48,
+        "end" : 193.98
+      }, {
+        "isDownbeat" : false,
+        "start" : 193.98,
+        "end" : 194.48
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 194.48,
+        "end" : 194.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 194.97,
+        "end" : 195.48
+      }, {
+        "isDownbeat" : false,
+        "start" : 195.48,
+        "end" : 195.97
+      }, {
+        "isDownbeat" : false,
+        "start" : 195.97,
+        "end" : 196.47
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 196.47,
+        "end" : 196.96
+      }, {
+        "isDownbeat" : false,
+        "start" : 196.96,
+        "end" : 197.46
+      }, {
+        "isDownbeat" : false,
+        "start" : 197.46,
+        "end" : 197.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 197.95,
+        "end" : 198.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 198.45,
+        "end" : 198.96
+      }, {
+        "isDownbeat" : false,
+        "start" : 198.96,
+        "end" : 199.45
+      }, {
+        "isDownbeat" : false,
+        "start" : 199.45,
+        "end" : 199.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 199.95,
+        "end" : 200.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 200.45,
+        "end" : 200.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 200.95,
+        "end" : 201.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 201.44,
+        "end" : 201.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 201.94,
+        "end" : 202.46
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 202.46,
+        "end" : 202.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 202.95,
+        "end" : 203.45
+      }, {
+        "isDownbeat" : false,
+        "start" : 203.45,
+        "end" : 203.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 203.94,
+        "end" : 204.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 204.45,
+        "end" : 204.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 204.95,
+        "end" : 205.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 205.44,
+        "end" : 205.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 205.94,
+        "end" : 206.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 206.45,
+        "end" : 206.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 206.95,
+        "end" : 207.46
+      }, {
+        "isDownbeat" : false,
+        "start" : 207.46,
+        "end" : 207.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 207.95,
+        "end" : 208.45
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 208.45,
+        "end" : 208.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 208.95,
+        "end" : 209.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 209.44,
+        "end" : 209.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 209.94,
+        "end" : 210.44
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 210.44,
+        "end" : 210.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 210.95,
+        "end" : 211.45
+      }, {
+        "isDownbeat" : false,
+        "start" : 211.45,
+        "end" : 211.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 211.94,
+        "end" : 212.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 212.45,
+        "end" : 212.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 212.95,
+        "end" : 213.45
+      }, {
+        "isDownbeat" : false,
+        "start" : 213.45,
+        "end" : 213.95
+      }, {
+        "isDownbeat" : false,
+        "start" : 213.95,
+        "end" : 214.45
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 214.45,
+        "end" : 214.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 214.94,
+        "end" : 215.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 215.44,
+        "end" : 215.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 215.94,
+        "end" : 216.44
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 216.44,
+        "end" : 216.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 216.94,
+        "end" : 217.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 217.44,
+        "end" : 217.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 217.94,
+        "end" : 218.44
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 218.44,
+        "end" : 218.94
+      }, {
+        "isDownbeat" : false,
+        "start" : 218.94,
+        "end" : 219.44
+      }, {
+        "isDownbeat" : false,
+        "start" : 219.44,
+        "end" : 219.92
+      }, {
+        "isDownbeat" : false,
+        "start" : 219.92,
+        "end" : 220.43
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 220.43,
+        "end" : 220.93
+      }, {
+        "isDownbeat" : false,
+        "start" : 220.93,
+        "end" : 221.43
+      }, {
+        "isDownbeat" : false,
+        "start" : 221.43,
+        "end" : 221.93
+      }, {
+        "isDownbeat" : false,
+        "start" : 221.93,
+        "end" : 222.42
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 222.42,
+        "end" : 222.91
+      }, {
+        "isDownbeat" : false,
+        "start" : 222.91,
+        "end" : 223.4
+      }, {
+        "isDownbeat" : false,
+        "start" : 223.4,
+        "end" : 223.88
+      }, {
+        "isDownbeat" : false,
+        "start" : 223.88,
+        "end" : 224.37
+      } ]
+    } ]
+  }, {
+    "label" : "chorus",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 224.37,
+        "end" : 224.85
+      }, {
+        "isDownbeat" : false,
+        "start" : 224.85,
+        "end" : 225.36
+      }, {
+        "isDownbeat" : false,
+        "start" : 225.36,
+        "end" : 225.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 225.86,
+        "end" : 226.36
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 226.36,
+        "end" : 226.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 226.86,
+        "end" : 227.35
+      }, {
+        "isDownbeat" : false,
+        "start" : 227.35,
+        "end" : 227.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 227.86,
+        "end" : 228.34
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 228.34,
+        "end" : 228.85
+      }, {
+        "isDownbeat" : false,
+        "start" : 228.85,
+        "end" : 229.35
+      }, {
+        "isDownbeat" : false,
+        "start" : 229.35,
+        "end" : 229.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 229.86,
+        "end" : 230.36
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 230.36,
+        "end" : 230.87
+      }, {
+        "isDownbeat" : false,
+        "start" : 230.87,
+        "end" : 231.37
+      }, {
+        "isDownbeat" : false,
+        "start" : 231.37,
+        "end" : 231.87
+      }, {
+        "isDownbeat" : false,
+        "start" : 231.87,
+        "end" : 232.37
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 232.37,
+        "end" : 232.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 232.86,
+        "end" : 233.37
+      }, {
+        "isDownbeat" : false,
+        "start" : 233.37,
+        "end" : 233.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 233.86,
+        "end" : 234.37
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 234.37,
+        "end" : 234.87
+      }, {
+        "isDownbeat" : false,
+        "start" : 234.87,
+        "end" : 235.36
+      }, {
+        "isDownbeat" : false,
+        "start" : 235.36,
+        "end" : 235.86
+      }, {
+        "isDownbeat" : false,
+        "start" : 235.86,
+        "end" : 236.34
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 236.34,
+        "end" : 236.82
+      }, {
+        "isDownbeat" : false,
+        "start" : 236.82,
+        "end" : 237.32
+      }, {
+        "isDownbeat" : false,
+        "start" : 237.32,
+        "end" : 237.82
+      }, {
+        "isDownbeat" : false,
+        "start" : 237.82,
+        "end" : 238.31
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 238.31,
+        "end" : 238.8
+      }, {
+        "isDownbeat" : false,
+        "start" : 238.8,
+        "end" : 239.3
+      }, {
+        "isDownbeat" : false,
+        "start" : 239.3,
+        "end" : 239.8
+      }, {
+        "isDownbeat" : false,
+        "start" : 239.8,
+        "end" : 240.29
+      } ]
+    } ]
+  }, {
+    "label" : "end",
+    "bars" : [ {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 240.29,
+        "end" : 240.78
+      }, {
+        "isDownbeat" : false,
+        "start" : 240.78,
+        "end" : 241.29
+      }, {
+        "isDownbeat" : false,
+        "start" : 241.29,
+        "end" : 241.79
+      }, {
+        "isDownbeat" : false,
+        "start" : 241.79,
+        "end" : 242.29
+      } ]
+    }, {
+      "beats" : [ {
+        "isDownbeat" : true,
+        "start" : 242.29,
+        "end" : 242.77
+      }, {
+        "isDownbeat" : false,
+        "start" : 242.77,
+        "end" : 243.27
+      }, {
+        "isDownbeat" : false,
+        "start" : 243.27,
+        "end" : 243.76
+      }, {
+        "isDownbeat" : false,
+        "start" : 243.76,
+        "end" : 253.34
+      } ]
+    } ]
+  } ]
+}

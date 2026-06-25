@@ -25,6 +25,7 @@ import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
 
 /**
@@ -1285,6 +1286,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             model.removeSegment(si);
         });
         menu.add(del);
+        addSegmentBorderRepairItems(menu, si);
         int cw = segmentContentWidth(s, w);
         if (x < cw) {
             double t = xToTimeInSegment(x, s, w);
@@ -1323,6 +1325,61 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             menu.add(addDownbeat);
         }
         menu.show(this, x, y);
+    }
+
+    private void addSegmentBorderRepairItems(JPopupMenu menu, int segmentIndex) {
+        menu.addSeparator();
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Shrink to full-bar borders",
+                model.canShrinkSegmentToFullBarBorders(segmentIndex),
+                () -> model.shrinkSegmentToFullBarBorders(segmentIndex));
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Expand to full-bar borders",
+                model.canExpandSegmentToFullBarBorders(segmentIndex),
+                () -> model.expandSegmentToFullBarBorders(segmentIndex));
+        menu.addSeparator();
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Take 1 bar from next (odd fix)",
+                model.canMoveFirstBarsFromNextSegment(segmentIndex, 1),
+                () -> model.moveFirstBarsFromNextSegment(segmentIndex, 1));
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Send 1 bar to next (odd fix)",
+                model.canMoveLastBarsToNextSegment(segmentIndex, 1),
+                () -> model.moveLastBarsToNextSegment(segmentIndex, 1));
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Take 2 bars from next",
+                model.canMoveFirstBarsFromNextSegment(segmentIndex, 2),
+                () -> model.moveFirstBarsFromNextSegment(segmentIndex, 2));
+        addSegmentEditMenuItem(menu, segmentIndex,
+                "Send 2 bars to next",
+                model.canMoveLastBarsToNextSegment(segmentIndex, 2),
+                () -> model.moveLastBarsToNextSegment(segmentIndex, 2));
+    }
+
+    private void addSegmentEditMenuItem(JPopupMenu menu, int segmentIndex, String label,
+                                        boolean enabled, BooleanSupplier edit) {
+        Segment selectedSegment = model.getSegments().get(segmentIndex);
+        JMenuItem item = new JMenuItem(label);
+        item.setEnabled(enabled);
+        item.addActionListener(a -> {
+            if (edit.getAsBoolean()) {
+                int newIndex = getSegmentIndex(selectedSegment);
+                if (newIndex >= 0) {
+                    selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, newIndex);
+                }
+                LOG.fine("Timeline: " + label + " for segment #" + segmentIndex);
+            }
+        });
+        menu.add(item);
+    }
+
+    private int getSegmentIndex(Segment targetSegment) {
+        for (int i = 0; i < model.getSegments().size(); i++) {
+            if (model.getSegments().get(i) == targetSegment) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override
