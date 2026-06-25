@@ -383,8 +383,8 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         if (segmentLabelFont == null) {
             Font base = g.getFont();
-            segmentLabelFont = base.deriveFont(Font.BOLD, 11f);
-            beatLabelFont = base.deriveFont(9f);
+            segmentLabelFont = base.deriveFont(Font.BOLD, 15.4f);
+            beatLabelFont = base.deriveFont(12.6f);
         }
         Rectangle clip = g.getClipBounds();
         int w = getWidth();
