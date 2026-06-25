@@ -105,6 +105,9 @@ public class MainFrame extends JFrame {
 
         // Keep the engine's sample-accurate metronome schedule in sync with edits.
         projectModel.addProjectChangeListener(this::pushMetronomeBeatsToEngine);
+        // Restrict playback to the surviving segments so editor deletions are not
+        // heard (the engine plays only these ranges, stitching across the gaps).
+        projectModel.addProjectChangeListener(this::pushPlayableRangesToEngine);
 
         // Position timer: playhead + follow-scroll (the metronome is mixed in by
         // the audio engine itself, sample-accurately — not driven from this tick).
@@ -173,7 +176,9 @@ public class MainFrame extends JFrame {
             LOG.fine("Transport: stop requested (button)");
             pcmWavPlaybackEngine.stop();
             refreshPlayPauseButtonLabel();
-            timelinePanel.setPlayheadPositionInSeconds(0);
+            // stop() rewinds to the first kept range, which may not be t=0; mirror it
+            // so the playhead lands inside a segment (and stays visible).
+            timelinePanel.setPlayheadPositionInSeconds(pcmWavPlaybackEngine.getPositionSeconds());
         });
 
         tb.add(playPauseButton);
@@ -279,6 +284,18 @@ public class MainFrame extends JFrame {
             times[i] = beats.get(i).getStart();
         }
         pcmWavPlaybackEngine.setMetronomeBeatTimes(times);
+    }
+
+    /** Restrict playback to the surviving segments' time ranges (an edit-decision list). */
+    private void pushPlayableRangesToEngine() {
+        var segments = projectModel.getSegments();
+        double[] ranges = new double[segments.size() * 2];
+        int i = 0;
+        for (var s : segments) {
+            ranges[i++] = s.getStart();
+            ranges[i++] = s.getEnd();
+        }
+        pcmWavPlaybackEngine.setPlayableTimeRangesSeconds(ranges);
     }
 
     private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
@@ -454,8 +471,9 @@ public class MainFrame extends JFrame {
                 lastRenderedPositionText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0);
                 playbackPositionTimeLabel.setText(lastRenderedPositionText + " / " + cachedDurationLabelText);
                 // Sample rate is known now: (re)publish the metronome schedule and
-                // honour the current checkbox state.
+                // the playable segment ranges, and honour the current checkbox state.
                 pushMetronomeBeatsToEngine();
+                pushPlayableRangesToEngine();
                 pcmWavPlaybackEngine.setMetronomeEnabled(metronomeEnabledCheckBox.isSelected());
             }
             refreshPlayPauseButtonLabel();
