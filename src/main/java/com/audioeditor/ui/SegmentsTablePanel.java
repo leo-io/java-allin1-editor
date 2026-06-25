@@ -80,11 +80,11 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         JButton sort = new JButton("Sort by start");
 
         add.addActionListener(a -> {
-            double t = audio.isLoaded() ? audio.getPositionSeconds() : 0;
-            model.addSegment(new Segment(t, t + 10, "verse"));
+            Segment seg = new Segment("verse");
+            model.addSegment(seg);
             rebuildSegmentLabelComboBoxEditor();
             selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
-            LOG.fine("Segments table: added segment at " + t + "s");
+            LOG.fine("Segments table: added segment");
         });
         dup.addActionListener(a -> {
             int row = table.getSelectedRow();
@@ -165,7 +165,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
     }
 
     private class SegmentTableModel extends AbstractTableModel {
-        private final String[] columnHeaderNames = {"Start (s)", "End (s)", "Label"};
+        private final String[] columnHeaderNames = {"#", "Label", "# Bars", "# Beats", "Start (s)", "End (s)"};
 
         @Override
         public int getRowCount() {
@@ -184,42 +184,48 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
 
         @Override
         public Class<?> getColumnClass(int c) {
-            return c == 2 ? String.class : Double.class;
+            return switch (c) {
+                case 0 -> Integer.class;
+                case 1 -> String.class;
+                case 2, 3 -> Integer.class;
+                default -> Double.class;
+            };
         }
 
         @Override
         public boolean isCellEditable(int r, int c) {
-            return true;
+            return c == 1;
         }
 
         @Override
         public Object getValueAt(int r, int c) {
             Segment s = model.getSegments().get(r);
             return switch (c) {
-                case 0 -> s.getStart();
-                case 1 -> s.getEnd();
-                default -> s.getLabel();
+                case 0 -> r + 1;
+                case 1 -> s.getLabel();
+                case 2 -> s.getBars().size();
+                case 3 -> {
+                    int count = 0;
+                    for (var bar : s.getBars()) {
+                        count += bar.getBeats().size();
+                    }
+                    yield count;
+                }
+                case 4 -> s.getStart();
+                case 5 -> s.getEnd();
+                default -> "";
             };
         }
 
         @Override
         public void setValueAt(Object v, int r, int c) {
-            Segment s = model.getSegments().get(r);
-            try {
-                switch (c) {
-                    case 0 -> s.setStart(Math.max(0, Double.parseDouble(v.toString())));
-                    case 1 -> s.setEnd(Math.max(0, Double.parseDouble(v.toString())));
-                    case 2 -> {
-                        s.setLabel(v.toString());
-                        model.rememberLabel(v.toString());
-                        rebuildSegmentLabelComboBoxEditor();
-                    }
-                    default -> {
-                    }
-                }
+            if (c == 1) {
+                Segment s = model.getSegments().get(r);
+                s.setLabel(v.toString());
+                model.rememberLabel(v.toString());
+                rebuildSegmentLabelComboBoxEditor();
                 model.notifyAllProjectChangeListeners();
-                LOG.fine("Segments table: edited row " + r + " col " + c + " = " + v);
-            } catch (NumberFormatException ignored) {
+                LOG.fine("Segments table: edited row " + r + " label = " + v);
             }
         }
     }

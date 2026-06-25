@@ -1,8 +1,10 @@
 package com.audioeditor.ui;
 
 import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.model.Bar;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
+import com.audioeditor.model.Segment;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -12,10 +14,12 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * CRUD table for beats: time (s) and bar position. Supports add, delete,
+ * CRUD table for beats: start/end times and downbeat flag. Supports add, delete,
  * duplicate, reorder (up/down) and sort, with selection synced to the timeline.
  */
 public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
@@ -44,9 +48,10 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
                 return;
             }
             int row = table.getSelectedRow();
-            if (row >= 0 && row < model.getBeats().size()) {
+            Beat b = tableModel.getBeatAt(row);
+            if (b != null) {
                 selection.selectItem(SelectionModel.SelectableItemType.BEAT, row);
-                double t = model.getBeats().get(row).getTime();
+                double t = b.getStart();
                 LOG.fine("Beats table: selected row " + row + " (beat at " + t + "s), seeking");
                 audio.seekSeconds(t);
             }
@@ -61,78 +66,49 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
 
     private JPanel buildButtons() {
         JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        JButton add = new JButton("Add");
-        JButton dup = new JButton("Duplicate");
         JButton del = new JButton("Delete");
         JButton up = new JButton("↑");
         JButton down = new JButton("↓");
-        JButton sort = new JButton("Sort by time");
 
-        add.addActionListener(a -> {
-            int row = table.getSelectedRow();
-            double t = row >= 0 ? model.getBeats().get(row).getTime() + 0.5 : getCurrentPlaybackPositionOrZero();
-            model.addBeat(new Beat(t, 1));
-            selectTableRowAndBroadcastSelection(model.getBeats().size() - 1);
-            LOG.fine("Beats table: added beat at " + t + "s (pos 1)");
-        });
-        dup.addActionListener(a -> {
-            int row = table.getSelectedRow();
-            if (row >= 0) {
-                Beat b = model.getBeats().get(row).copy();
-                b.setTime(b.getTime() + 0.25);
-                model.getBeats().add(row + 1, b);
-                model.notifyAllProjectChangeListeners();
-                selectTableRowAndBroadcastSelection(row + 1);
-                LOG.fine("Beats table: duplicated beat row " + row);
-            }
-        });
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row >= 0) {
-                model.removeBeat(row);
-                selectTableRowAndBroadcastSelection(Math.min(row, model.getBeats().size() - 1));
+            Beat b = tableModel.getBeatAt(row);
+            if (b != null) {
+                tableModel.removeBeat(b);
+                selectTableRowAndBroadcastSelection(Math.min(row, tableModel.getRowCount() - 1));
                 LOG.fine("Beats table: deleted beat row " + row);
             }
         });
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row > 0) {
-                model.moveBeat(row, row - 1);
+            Beat b = tableModel.getBeatAt(row);
+            if (b != null && row > 0) {
+                tableModel.moveBeatUp(b);
                 selectTableRowAndBroadcastSelection(row - 1);
                 LOG.fine("Beats table: moved beat row " + row + " up");
             }
         });
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row >= 0 && row < model.getBeats().size() - 1) {
-                model.moveBeat(row, row + 1);
+            Beat b = tableModel.getBeatAt(row);
+            if (b != null && row < tableModel.getRowCount() - 1) {
+                tableModel.moveBeatDown(b);
                 selectTableRowAndBroadcastSelection(row + 1);
                 LOG.fine("Beats table: moved beat row " + row + " down");
             }
         });
-        sort.addActionListener(a -> {
-            model.sortBeats();
-            LOG.fine("Beats table: sorted by time");
-        });
 
-        p.add(add);
-        p.add(dup);
         p.add(del);
         p.add(up);
         p.add(down);
-        p.add(sort);
         return p;
     }
 
-    private double getCurrentPlaybackPositionOrZero() {
-        return audio.isLoaded() ? audio.getPositionSeconds() : 0;
-    }
-
     private void selectTableRowAndBroadcastSelection(int rowIndex) {
-        if (rowIndex < 0 || rowIndex >= model.getBeats().size()) {
-            return;
+        Beat b = tableModel.getBeatAt(rowIndex);
+        if (b != null) {
+            selection.selectItem(SelectionModel.SelectableItemType.BEAT, rowIndex);
         }
-        selection.selectItem(SelectionModel.SelectableItemType.BEAT, rowIndex);
     }
 
     @Override
@@ -161,11 +137,12 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
     }
 
     private class BeatMarkerTableModel extends AbstractTableModel {
-        private final String[] columnHeaderNames = {"#", "Time (s)", "Position"};
+        private final String[] columnHeaderNames = {"#", "Bar #", "Start (s)", "End (s)", "Downbeat"};
+        private final List<Beat> flatBeatList = new ArrayList<>();
 
         @Override
         public int getRowCount() {
-            return model.getBeats().size();
+            return flatBeatList.size();
         }
 
         @Override
@@ -181,40 +158,115 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
         @Override
         public Class<?> getColumnClass(int c) {
             return switch (c) {
-                case 0 -> Integer.class;
-                case 1 -> Double.class;
-                default -> Integer.class;
+                case 0, 1 -> Integer.class;
+                case 2, 3 -> Double.class;
+                case 4 -> Boolean.class;
+                default -> Object.class;
             };
         }
 
         @Override
         public boolean isCellEditable(int r, int c) {
-            return c != 0;
+            return c == 2 || c == 3 || c == 4;
         }
 
         @Override
         public Object getValueAt(int r, int c) {
-            Beat b = model.getBeats().get(r);
+            Beat b = flatBeatList.get(r);
             return switch (c) {
-                case 0 -> r;
-                case 1 -> b.getTime();
-                default -> b.getPosition();
+                case 0 -> r + 1;
+                case 1 -> getBarNumberForBeat(b);
+                case 2 -> b.getStart();
+                case 3 -> b.getEnd();
+                case 4 -> b.isDownbeat();
+                default -> "";
             };
         }
 
         @Override
         public void setValueAt(Object v, int r, int c) {
-            Beat b = model.getBeats().get(r);
+            Beat b = flatBeatList.get(r);
             try {
-                if (c == 1) {
-                    b.setTime(Math.max(0, Double.parseDouble(v.toString())));
-                } else if (c == 2) {
-                    b.setPosition(Math.max(1, Integer.parseInt(v.toString())));
+                switch (c) {
+                    case 2 -> b.setStart(Math.max(0, Double.parseDouble(v.toString())));
+                    case 3 -> b.setEnd(Math.max(0, Double.parseDouble(v.toString())));
+                    case 4 -> b.setDownbeat((Boolean) v);
+                    default -> {
+                        return;
+                    }
                 }
                 model.notifyAllProjectChangeListeners();
                 LOG.fine("Beats table: edited row " + r + " col " + c + " = " + v);
             } catch (NumberFormatException ignored) {
             }
+        }
+
+        Beat getBeatAt(int row) {
+            if (row >= 0 && row < flatBeatList.size()) {
+                return flatBeatList.get(row);
+            }
+            return null;
+        }
+
+        void removeBeat(Beat beat) {
+            for (Segment s : model.getSegments()) {
+                for (Bar bar : s.getBars()) {
+                    if (bar.getBeats().remove(beat)) {
+                        model.notifyAllProjectChangeListeners();
+                        return;
+                    }
+                }
+            }
+        }
+
+        void moveBeatUp(Beat beat) {
+            for (Segment s : model.getSegments()) {
+                for (Bar bar : s.getBars()) {
+                    int idx = bar.getBeats().indexOf(beat);
+                    if (idx > 0) {
+                        bar.moveBeat(idx, idx - 1);
+                        model.notifyAllProjectChangeListeners();
+                        return;
+                    }
+                }
+            }
+        }
+
+        void moveBeatDown(Beat beat) {
+            for (Segment s : model.getSegments()) {
+                for (Bar bar : s.getBars()) {
+                    int idx = bar.getBeats().indexOf(beat);
+                    if (idx >= 0 && idx < bar.getBeats().size() - 1) {
+                        bar.moveBeat(idx, idx + 1);
+                        model.notifyAllProjectChangeListeners();
+                        return;
+                    }
+                }
+            }
+        }
+
+        private int getBarNumberForBeat(Beat beat) {
+            int barNum = 1;
+            for (Segment s : model.getSegments()) {
+                for (Bar bar : s.getBars()) {
+                    if (bar.getBeats().contains(beat)) {
+                        return barNum;
+                    }
+                    barNum++;
+                }
+            }
+            return 0;
+        }
+
+        @Override
+        public void fireTableDataChanged() {
+            flatBeatList.clear();
+            for (Segment s : model.getSegments()) {
+                for (Bar bar : s.getBars()) {
+                    flatBeatList.addAll(bar.getBeats());
+                }
+            }
+            super.fireTableDataChanged();
         }
     }
 }

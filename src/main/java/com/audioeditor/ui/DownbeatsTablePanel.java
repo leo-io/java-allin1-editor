@@ -1,7 +1,9 @@
 package com.audioeditor.ui;
 
 import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.model.Bar;
 import com.audioeditor.model.ProjectModel;
+import com.audioeditor.model.Segment;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -11,11 +13,16 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * CRUD table for downbeat times, with add / delete / duplicate / reorder / sort
+ * CRUD table for bars (which have downbeat times), with add / delete / reorder
  * and selection synced to the timeline.
+ *
+ * <p>Each row represents a Bar. The downbeat time is the start of the bar's
+ * first beat (when {@code isDownbeat()} is true).
  */
 public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectChangeListener, SelectionModel.SelectionChangeListener {
 
@@ -25,7 +32,7 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
     private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
     private final JTable table;
-    private final DownbeatMarkerTableModel tableModel;
+    private final BarsTableModel tableModel;
     private boolean isSuppressingSelectionFeedback = false;
 
     public DownbeatsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
@@ -33,7 +40,7 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
         this.model = model;
         this.audio = audio;
         this.selection = selection;
-        this.tableModel = new DownbeatMarkerTableModel();
+        this.tableModel = new BarsTableModel();
         this.table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
@@ -43,10 +50,11 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
                 return;
             }
             int row = table.getSelectedRow();
-            if (row >= 0 && row < model.getDownbeats().size()) {
-                selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, row);
-                double t = model.getDownbeats().get(row);
-                LOG.fine("Downbeats table: selected row " + row + " (downbeat at " + t + "s), seeking");
+            Bar bar = tableModel.getBarAt(row);
+            if (bar != null && !bar.getBeats().isEmpty()) {
+                selection.selectItem(SelectionModel.SelectableItemType.BAR, row);
+                double t = bar.getBeats().get(0).getStart();
+                LOG.fine("Bars table: selected row " + row + " (downbeat at " + t + "s), seeking");
                 audio.seekSeconds(t);
             }
         });
@@ -60,60 +68,48 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
 
     private JPanel buildButtons() {
         JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        JButton add = new JButton("Add");
         JButton del = new JButton("Delete");
         JButton up = new JButton("↑");
         JButton down = new JButton("↓");
-        JButton sort = new JButton("Sort");
 
-        add.addActionListener(a -> {
-            int row = table.getSelectedRow();
-            double t = row >= 0 ? model.getDownbeats().get(row) + 1.0
-                    : (audio.isLoaded() ? audio.getPositionSeconds() : 0);
-            model.addDownbeat(t);
-            selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, model.getDownbeats().size() - 1);
-            LOG.fine("Downbeats table: added downbeat at " + t + "s");
-        });
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row >= 0) {
-                model.removeDownbeat(row);
-                selectTableRowAndBroadcastSelection(Math.min(row, model.getDownbeats().size() - 1));
-                LOG.fine("Downbeats table: deleted downbeat row " + row);
+            Bar bar = tableModel.getBarAt(row);
+            if (bar != null) {
+                tableModel.removeBar(bar);
+                selectTableRowAndBroadcastSelection(Math.min(row, tableModel.getRowCount() - 1));
+                LOG.fine("Bars table: deleted bar row " + row);
             }
         });
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row > 0) {
-                model.moveDownbeat(row, row - 1);
+            Bar bar = tableModel.getBarAt(row);
+            if (bar != null && row > 0) {
+                tableModel.moveBarUp(bar);
                 selectTableRowAndBroadcastSelection(row - 1);
-                LOG.fine("Downbeats table: moved downbeat row " + row + " up");
+                LOG.fine("Bars table: moved bar row " + row + " up");
             }
         });
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
-            if (row >= 0 && row < model.getDownbeats().size() - 1) {
-                model.moveDownbeat(row, row + 1);
+            Bar bar = tableModel.getBarAt(row);
+            if (bar != null && row < tableModel.getRowCount() - 1) {
+                tableModel.moveBarDown(bar);
                 selectTableRowAndBroadcastSelection(row + 1);
-                LOG.fine("Downbeats table: moved downbeat row " + row + " down");
+                LOG.fine("Bars table: moved bar row " + row + " down");
             }
         });
-        sort.addActionListener(a -> {
-            model.sortDownbeats();
-            LOG.fine("Downbeats table: sorted");
-        });
 
-        p.add(add);
         p.add(del);
         p.add(up);
         p.add(down);
-        p.add(sort);
         return p;
     }
 
     private void selectTableRowAndBroadcastSelection(int rowIndex) {
-        if (rowIndex >= 0 && rowIndex < model.getDownbeats().size()) {
-            selection.selectItem(SelectionModel.SelectableItemType.DOWNBEAT, rowIndex);
+        Bar bar = tableModel.getBarAt(rowIndex);
+        if (bar != null) {
+            selection.selectItem(SelectionModel.SelectableItemType.BAR, rowIndex);
         }
     }
 
@@ -130,7 +126,7 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
 
     @Override
     public void selectionChanged() {
-        if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.DOWNBEAT) {
+        if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.BAR) {
             return;
         }
         int i = selection.getSelectedItemIndex();
@@ -142,12 +138,13 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
         }
     }
 
-    private class DownbeatMarkerTableModel extends AbstractTableModel {
-        private final String[] columnHeaderNames = {"#", "Time (s)"};
+    private class BarsTableModel extends AbstractTableModel {
+        private final String[] columnHeaderNames = {"#", "Downbeat (s)", "# Beats", "Duration (s)"};
+        private final List<Bar> flatBarList = new ArrayList<>();
 
         @Override
         public int getRowCount() {
-            return model.getDownbeats().size();
+            return flatBarList.size();
         }
 
         @Override
@@ -162,29 +159,76 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
 
         @Override
         public Class<?> getColumnClass(int c) {
-            return c == 0 ? Integer.class : Double.class;
+            return switch (c) {
+                case 0 -> Integer.class;
+                case 1, 3 -> Double.class;
+                case 2 -> Integer.class;
+                default -> Object.class;
+            };
         }
 
         @Override
         public boolean isCellEditable(int r, int c) {
-            return c == 1;
+            return false;
         }
 
         @Override
         public Object getValueAt(int r, int c) {
-            return c == 0 ? r : model.getDownbeats().get(r);
+            Bar bar = flatBarList.get(r);
+            return switch (c) {
+                case 0 -> r + 1;
+                case 1 -> bar.getBeats().isEmpty() ? 0.0 : bar.getBeats().get(0).getStart();
+                case 2 -> bar.getBeats().size();
+                case 3 -> bar.getDuration();
+                default -> "";
+            };
+        }
+
+        Bar getBarAt(int row) {
+            if (row >= 0 && row < flatBarList.size()) {
+                return flatBarList.get(row);
+            }
+            return null;
+        }
+
+        void removeBar(Bar bar) {
+            for (Segment s : model.getSegments()) {
+                if (s.getBars().remove(bar)) {
+                    model.notifyAllProjectChangeListeners();
+                    return;
+                }
+            }
+        }
+
+        void moveBarUp(Bar bar) {
+            for (Segment s : model.getSegments()) {
+                int idx = s.getBars().indexOf(bar);
+                if (idx > 0) {
+                    s.moveBar(idx, idx - 1);
+                    model.notifyAllProjectChangeListeners();
+                    return;
+                }
+            }
+        }
+
+        void moveBarDown(Bar bar) {
+            for (Segment s : model.getSegments()) {
+                int idx = s.getBars().indexOf(bar);
+                if (idx >= 0 && idx < s.getBars().size() - 1) {
+                    s.moveBar(idx, idx + 1);
+                    model.notifyAllProjectChangeListeners();
+                    return;
+                }
+            }
         }
 
         @Override
-        public void setValueAt(Object v, int r, int c) {
-            if (c == 1) {
-                try {
-                    model.getDownbeats().set(r, Math.max(0, Double.parseDouble(v.toString())));
-                    model.notifyAllProjectChangeListeners();
-                    LOG.fine("Downbeats table: edited row " + r + " time = " + v);
-                } catch (NumberFormatException ignored) {
-                }
+        public void fireTableDataChanged() {
+            flatBarList.clear();
+            for (Segment s : model.getSegments()) {
+                flatBarList.addAll(s.getBars());
             }
+            super.fireTableDataChanged();
         }
     }
 }

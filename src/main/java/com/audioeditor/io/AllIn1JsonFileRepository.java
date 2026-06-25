@@ -1,5 +1,6 @@
 package com.audioeditor.io;
 
+import com.audioeditor.model.Bar;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
@@ -17,8 +18,7 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Loads and saves the analysis JSON, mapping the parallel {@code beats} /
- * {@code beat_positions} arrays to a single editable beat list and back, and
+ * Loads and saves the analysis JSON in the new nested format (segments → bars → beats),
  * preserving any unmodelled top-level keys for faithful round-tripping.
  *
  * <p>Exposed as a singleton {@link #INSTANCE} implementing
@@ -33,7 +33,7 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
 
     /** Keys this editor models explicitly; everything else is preserved as-is. */
     private static final Set<String> EXPLICITLY_MODELLED_JSON_KEYS = Set.of(
-            "path", "bpm", "beats", "beat_positions", "downbeats", "segments");
+            "path", "bpm", "segments");
 
     private static final ObjectMapper JSON_OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
@@ -54,33 +54,32 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
             model.setBpm(root.get("bpm").asDouble());
         }
 
-        JsonNode beats = root.get("beats");
-        JsonNode positions = root.get("beat_positions");
-        if (beats != null && beats.isArray()) {
-            for (int i = 0; i < beats.size(); i++) {
-                double t = beats.get(i).asDouble();
-                int pos = (positions != null && positions.isArray() && i < positions.size())
-                        ? positions.get(i).asInt() : 1;
-                model.getBeats().add(new Beat(t, pos));
-            }
-        }
-
-        JsonNode downbeats = root.get("downbeats");
-        if (downbeats != null && downbeats.isArray()) {
-            for (JsonNode n : downbeats) {
-                model.getDownbeats().add(n.asDouble());
-            }
-        }
-
         JsonNode segments = root.get("segments");
         if (segments != null && segments.isArray()) {
-            for (JsonNode n : segments) {
-                double start = n.path("start").asDouble();
-                double end = n.path("end").asDouble();
-                String label = n.path("label").asText("");
-                Segment seg = new Segment(start, end, label);
-                model.getSegments().add(seg);
-                model.rememberLabel(label);
+            for (JsonNode segNode : segments) {
+                String label = segNode.path("label").asText("");
+                Segment seg = new Segment(label);
+
+                JsonNode bars = segNode.get("bars");
+                if (bars != null && bars.isArray()) {
+                    for (JsonNode barNode : bars) {
+                        Bar bar = new Bar();
+
+                        JsonNode beats = barNode.get("beats");
+                        if (beats != null && beats.isArray()) {
+                            for (JsonNode beatNode : beats) {
+                                boolean isDownbeat = beatNode.path("isDownbeat").asBoolean();
+                                double start = beatNode.path("start").asDouble();
+                                double end = beatNode.path("end").asDouble();
+                                bar.addBeat(new Beat(isDownbeat, start, end));
+                            }
+                        }
+
+                        seg.addBar(bar);
+                    }
+                }
+
+                model.addSegment(seg);
             }
         }
 
@@ -94,8 +93,10 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
         }
 
         model.setDirty(false);
-        LOG.fine(String.format("Loaded: beats=%d downbeats=%d segments=%d",
-                model.getBeats().size(), model.getDownbeats().size(), model.getSegments().size()));
+        int totalBeats = model.getAllBeatsFlat().size();
+        int totalBars = model.getSegments().stream().mapToInt(s -> s.getBars().size()).sum();
+        LOG.fine(String.format("Loaded: segments=%d bars=%d beats=%d",
+                model.getSegments().size(), totalBars, totalBeats));
         return model;
     }
 
@@ -114,24 +115,23 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
             root.put("bpm", bpm);
         }
 
-        ArrayNode beatsArr = root.putArray("beats");
-        ArrayNode posArr = root.putArray("beat_positions");
-        for (Beat b : projectModel.getBeats()) {
-            beatsArr.add(roundToMillisecondPrecision(b.getTime()));
-            posArr.add(b.getPosition());
-        }
-
-        ArrayNode downArr = root.putArray("downbeats");
-        for (Double d : projectModel.getDownbeats()) {
-            downArr.add(roundToMillisecondPrecision(d));
-        }
-
         ArrayNode segArr = root.putArray("segments");
         for (Segment s : projectModel.getSegments()) {
-            ObjectNode o = segArr.addObject();
-            o.put("start", roundToMillisecondPrecision(s.getStart()));
-            o.put("end", roundToMillisecondPrecision(s.getEnd()));
-            o.put("label", s.getLabel());
+            ObjectNode segNode = segArr.addObject();
+            segNode.put("label", s.getLabel());
+
+            ArrayNode barsArr = segNode.putArray("bars");
+            for (Bar bar : s.getBars()) {
+                ObjectNode barNode = barsArr.addObject();
+
+                ArrayNode beatsArr = barNode.putArray("beats");
+                for (Beat b : bar.getBeats()) {
+                    ObjectNode beatNode = beatsArr.addObject();
+                    beatNode.put("isDownbeat", b.isDownbeat());
+                    beatNode.put("start", roundToMs(b.getStart()));
+                    beatNode.put("end", roundToMs(b.getEnd()));
+                }
+            }
         }
 
         // Re-emit any preserved unknown keys.
@@ -145,7 +145,7 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
     }
 
     /** Round to millisecond precision to avoid float noise in the output. */
-    private double roundToMillisecondPrecision(double valueInSeconds) {
+    private double roundToMs(double valueInSeconds) {
         return Math.round(valueInSeconds * 1000.0) / 1000.0;
     }
 }

@@ -12,12 +12,15 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * In-memory, fully editable representation of an analysis JSON file.
  *
- * <p>Holds the audio path, BPM, the merged beat list (time + bar position),
- * the downbeat times, and the segments. Any unrecognised top-level JSON keys
- * are preserved verbatim in {@link #unmodelledJsonFields} so a save never drops data.
+ * <p>Holds the audio path, BPM, and a hierarchy of segments → bars → beats.
+ * Beats (and the downbeat flag on each) are nested inside bars inside
+ * segments — there is no longer a flat {@code beatList} / downbeat list. Any
+ * unrecognised top-level JSON keys are preserved verbatim in
+ * {@link #unmodelledJsonFields} so a save never drops data.
  *
- * <p>Every mutation marks the model dirty and notifies {@link ProjectChangeListener}s so the
- * timeline, the CRUD tables and the playhead stay synchronized in real time.
+ * <p>Every mutation marks the model dirty and notifies
+ * {@link ProjectChangeListener}s so the timeline, the CRUD tables and the
+ * playhead stay synchronized in real time.
  */
 public class ProjectModel {
 
@@ -28,8 +31,6 @@ public class ProjectModel {
 
     private String referencedAudioFilePath = "";
     private double beatsPerMinute = 0;
-    private final List<Beat> beatList = new ArrayList<>();
-    private final List<Double> downbeatTimeList = new ArrayList<>();
     private final List<Segment> segmentList = new ArrayList<>();
 
     /** Top-level JSON keys we don't model explicitly, kept for round-trip fidelity. */
@@ -96,62 +97,7 @@ public class ProjectModel {
         }
     }
 
-    // ---- beats -----------------------------------------------------------
-
-    public List<Beat> getBeats() {
-        return beatList;
-    }
-
-    public void addBeat(Beat b) {
-        beatList.add(b);
-        notifyAllProjectChangeListeners();
-    }
-
-    public void removeBeat(int index) {
-        if (index >= 0 && index < beatList.size()) {
-            beatList.remove(index);
-            notifyAllProjectChangeListeners();
-        }
-    }
-
-    public void moveBeat(int from, int to) {
-        move(beatList, from, to);
-    }
-
-    /** Sort beats ascending by time (keeps table/timeline consistent). */
-    public void sortBeats() {
-        beatList.sort(Comparator.comparingDouble(Beat::getTime));
-        notifyAllProjectChangeListeners();
-    }
-
-    // ---- downbeats -------------------------------------------------------
-
-    public List<Double> getDownbeats() {
-        return downbeatTimeList;
-    }
-
-    public void addDownbeat(double t) {
-        downbeatTimeList.add(t);
-        notifyAllProjectChangeListeners();
-    }
-
-    public void removeDownbeat(int index) {
-        if (index >= 0 && index < downbeatTimeList.size()) {
-            downbeatTimeList.remove(index);
-            notifyAllProjectChangeListeners();
-        }
-    }
-
-    public void moveDownbeat(int from, int to) {
-        move(downbeatTimeList, from, to);
-    }
-
-    public void sortDownbeats() {
-        downbeatTimeList.sort(Comparator.naturalOrder());
-        notifyAllProjectChangeListeners();
-    }
-
-    // ---- segments --------------------------------------------------------
+    // ---- segments (which own bars which own beats) ----------------------
 
     public List<Segment> getSegments() {
         return segmentList;
@@ -174,9 +120,50 @@ public class ProjectModel {
         move(segmentList, from, to);
     }
 
+    /** Sort segments ascending by computed start time (first beat's start). */
     public void sortSegments() {
         segmentList.sort(Comparator.comparingDouble(Segment::getStart));
         notifyAllProjectChangeListeners();
+    }
+
+    // ---- flat-iteration helpers for the new hierarchy ------------------
+
+    /** All beats across all segments/bars, in playback order. */
+    public List<Beat> getAllBeatsFlat() {
+        List<Beat> flat = new ArrayList<>();
+        for (Segment s : segmentList) {
+            for (Bar bar : s.getBars()) {
+                flat.addAll(bar.getBeats());
+            }
+        }
+        return flat;
+    }
+
+    /** All downbeat beats (beats with {@link Beat#isDownbeat()} == true) in playback order. */
+    public List<Beat> getAllDownbeatBeatsFlat() {
+        List<Beat> flat = new ArrayList<>();
+        for (Segment s : segmentList) {
+            for (Bar bar : s.getBars()) {
+                for (Beat b : bar.getBeats()) {
+                    if (b.isDownbeat()) {
+                        flat.add(b);
+                    }
+                }
+            }
+        }
+        return flat;
+    }
+
+    /** Which segment owns the given beat reference, or -1 if none. */
+    public int findSegmentIndexForBeat(Beat beat) {
+        for (int si = 0; si < segmentList.size(); si++) {
+            for (Bar bar : segmentList.get(si).getBars()) {
+                if (bar.getBeats().contains(beat)) {
+                    return si;
+                }
+            }
+        }
+        return -1;
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -193,9 +180,12 @@ public class ProjectModel {
     /** Largest time referenced anywhere, used to size the timeline. */
     public double getMaxTime() {
         double max = 0;
-        for (Beat b : beatList) max = Math.max(max, b.getTime());
-        for (Double d : downbeatTimeList) max = Math.max(max, d);
-        for (Segment s : segmentList) max = Math.max(max, s.getEnd());
+        for (Segment s : segmentList) {
+            max = Math.max(max, s.getEnd());
+            for (Bar bar : s.getBars()) {
+                max = Math.max(max, bar.getEndTime());
+            }
+        }
         return max;
     }
 
@@ -211,12 +201,10 @@ public class ProjectModel {
     public void copyFrom(ProjectModel other) {
         this.referencedAudioFilePath = other.referencedAudioFilePath;
         this.beatsPerMinute = other.beatsPerMinute;
-        this.beatList.clear();
-        this.beatList.addAll(other.beatList);
-        this.downbeatTimeList.clear();
-        this.downbeatTimeList.addAll(other.downbeatTimeList);
         this.segmentList.clear();
-        this.segmentList.addAll(other.segmentList);
+        for (Segment s : other.segmentList) {
+            this.segmentList.add(s.copy());
+        }
         this.unmodelledJsonFields.clear();
         this.unmodelledJsonFields.putAll(other.unmodelledJsonFields);
         for (Segment s : segmentList) {

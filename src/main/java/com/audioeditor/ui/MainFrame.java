@@ -273,10 +273,10 @@ public class MainFrame extends JFrame {
 
     /** Build the seconds→engine metronome schedule from the current beat list. */
     private void pushMetronomeBeatsToEngine() {
-        var beats = projectModel.getBeats();
+        var beats = projectModel.getAllBeatsFlat();
         double[] times = new double[beats.size()];
         for (int i = 0; i < times.length; i++) {
-            times[i] = beats.get(i).getTime();
+            times[i] = beats.get(i).getStart();
         }
         pcmWavPlaybackEngine.setMetronomeBeatTimes(times);
     }
@@ -346,9 +346,11 @@ public class MainFrame extends JFrame {
                     sharedSelectionModel.clearSelection();
                     loadAudioFileForPlayback(new File(projectModel.getAudioPath()), false);
                     applicationStatusLabel.setText("Loaded " + analysisJsonFile.getName());
-                    LOG.info("Opened: beats=" + projectModel.getBeats().size()
-                            + " downbeats=" + projectModel.getDownbeats().size()
-                            + " segments=" + projectModel.getSegments().size());
+                    int totalBeats = projectModel.getAllBeatsFlat().size();
+                    int totalBars = projectModel.getSegments().stream()
+                            .mapToInt(s -> s.getBars().size()).sum();
+                    LOG.info("Opened: segments=" + projectModel.getSegments().size()
+                            + " bars=" + totalBars + " beats=" + totalBeats);
                 } catch (Exception ex) {
                     LOG.log(Level.SEVERE, "Failed to open file: " + analysisJsonFile.getAbsolutePath(), ex);
                     applicationStatusLabel.setText("Failed to open: " + ex.getMessage());

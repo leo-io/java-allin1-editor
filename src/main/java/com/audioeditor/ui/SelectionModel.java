@@ -10,7 +10,7 @@ import java.util.List;
  */
 public class SelectionModel {
 
-    public enum SelectableItemType { NONE, BEAT, DOWNBEAT, SEGMENT }
+    public enum SelectableItemType { NONE, BEAT, BAR, SEGMENT }
 
     public interface SelectionChangeListener {
         void selectionChanged();

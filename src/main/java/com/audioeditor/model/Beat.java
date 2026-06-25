@@ -1,42 +1,58 @@
 package com.audioeditor.model;
 
 /**
- * A single beat: its time in seconds and its position within the bar (1..N,
- * typically 1-4). The JSON stores these as two parallel arrays
- * ({@code beats} and {@code beat_positions}); we merge them into one editable
- * object and split them back on save.
+ * A single beat inside a bar. Stores whether it is the bar's downbeat
+ * (first beat) plus its time range {@code [start, end]} in seconds.
+ *
+ * <p>The {@code end} of one beat is expected to match the {@code start} of
+ * the next beat in the same bar so the bar's beats are contiguous.
  */
 public class Beat {
-    private double beatTimeInSeconds;
-    private int beatPositionWithinBar;
+    private boolean downbeat;
+    private double startTime;
+    private double endTime;
 
-    public Beat(double beatTimeInSeconds, int beatPositionWithinBar) {
-        this.beatTimeInSeconds = beatTimeInSeconds;
-        this.beatPositionWithinBar = beatPositionWithinBar;
+    public Beat(boolean downbeat, double startTime, double endTime) {
+        this.downbeat = downbeat;
+        this.startTime = startTime;
+        this.endTime = endTime;
     }
 
-    public double getTime() {
-        return beatTimeInSeconds;
+    public boolean isDownbeat() {
+        return downbeat;
     }
 
-    public void setTime(double time) {
-        this.beatTimeInSeconds = time;
+    public void setDownbeat(boolean downbeat) {
+        this.downbeat = downbeat;
     }
 
+    public double getStart() {
+        return startTime;
+    }
+
+    public void setStart(double startTime) {
+        this.startTime = startTime;
+    }
+
+    public double getEnd() {
+        return endTime;
+    }
+
+    public void setEnd(double endTime) {
+        this.endTime = endTime;
+    }
+
+    /** Position within the bar, 1-based; the downbeat is always position 1. */
     public int getPosition() {
-        return beatPositionWithinBar;
-    }
-
-    public void setPosition(int position) {
-        this.beatPositionWithinBar = position;
+        return downbeat ? 1 : 0;
     }
 
     public Beat copy() {
-        return new Beat(beatTimeInSeconds, beatPositionWithinBar);
+        return new Beat(downbeat, startTime, endTime);
     }
 
     @Override
     public String toString() {
-        return String.format("Beat[%.3f, pos=%d]", beatTimeInSeconds, beatPositionWithinBar);
+        return String.format("Beat[%s %.3f-%.3f]", downbeat ? "D" : "b", startTime, endTime);
     }
 }
