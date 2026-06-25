@@ -59,9 +59,11 @@ public class PcmWavPlaybackEngine {
     // Half-open playable frame ranges [s0,e0, s1,e1, ...], sorted and merged, that
     // playback is restricted to. The pump skips any frame outside these ranges and
     // stitches the kept ranges together, so deleting a segment in the editor removes
-    // that audio from playback (an edit-decision list). An empty array means "no
-    // restriction" — the whole decoded file is playable.
-    private volatile long[] playableFrameRanges = new long[0];
+    // that audio from playback (an edit-decision list). null means "no restriction"
+    // (the whole decoded file is playable); an empty array means no audio is kept.
+    private volatile long[] playableFrameRanges = null;
+    private volatile long nextWriteCursorPlayableFrame = 0; // next stitched-frame offset handed to the line
+    private volatile long lastRenderedPlayableFrame = 0;    // stitched-frame offset actually rendered
 
     // Monitor used to wake the pump thread from its idle wait when play/seek is requested.
     private final Object pumpWaitLock = new Object();
@@ -152,7 +154,9 @@ public class PcmWavPlaybackEngine {
         nextWriteCursorFrame = 0;
         lastRenderedAudioFrame = 0;
         lastRenderTimestampNanos = System.nanoTime();
-        playableFrameRanges = new long[0];
+        playableFrameRanges = null;
+        nextWriteCursorPlayableFrame = 0;
+        lastRenderedPlayableFrame = 0;
         beatFramePositions = new long[0];
         beatFramesSeenByPump = null;
         nextBeatIndex = 0;
@@ -187,9 +191,12 @@ public class PcmWavPlaybackEngine {
             long s = pendingSeekTargetFrame;
             if (s >= 0) {
                 localSourceDataLine.flush();
+                long[] ranges = playableFrameRanges;
                 nextWriteCursorFrame = Math.max(0, Math.min(s, totalAudioFrameCount));
+                nextWriteCursorPlayableFrame = sourceFrameToPlayableOffset(nextWriteCursorFrame, ranges);
                 pendingSeekTargetFrame = -1;
                 lastRenderedAudioFrame = nextWriteCursorFrame; // queue flushed; rendered == write cursor
+                lastRenderedPlayableFrame = nextWriteCursorPlayableFrame;
                 resyncBeatPointer(nextWriteCursorFrame);       // re-aim the metronome
                 activeClickRemainingFrames = 0;                // drop any click crossing the seek
             }
@@ -203,6 +210,10 @@ public class PcmWavPlaybackEngine {
                     // Jump straight to the next kept range, or stop if none remain.
                     long nextStart = nextPlayableStartAfter(startFrame, ranges);
                     if (nextStart < 0) {
+                        if (playbackIsActive && publishRenderedPositionFromLine(localSourceDataLine, ranges) > 0) {
+                            sleepBrieflyWhileDraining();
+                            continue;
+                        }
                         playbackIsRequested = false;
                         playbackIsActive = false;
                         localSourceDataLine.stop();
@@ -213,10 +224,13 @@ public class PcmWavPlaybackEngine {
                         }
                         continue;
                     }
-                    localSourceDataLine.flush();
                     nextWriteCursorFrame = nextStart;
-                    lastRenderedAudioFrame = nextStart;        // queue flushed; rendered == cursor
-                    lastRenderTimestampNanos = System.nanoTime();
+                    nextWriteCursorPlayableFrame = sourceFrameToPlayableOffset(nextStart, ranges);
+                    if (!playbackIsActive || publishRenderedPositionFromLine(localSourceDataLine, ranges) == 0) {
+                        lastRenderedAudioFrame = nextStart;
+                        lastRenderedPlayableFrame = nextWriteCursorPlayableFrame;
+                        lastRenderTimestampNanos = System.nanoTime();
+                    }
                     resyncBeatPointer(nextStart);              // re-aim the metronome over the skip
                     activeClickRemainingFrames = 0;            // drop any click crossing the gap
                     continue;
@@ -243,18 +257,19 @@ public class PcmWavPlaybackEngine {
                     srcOffset = (int) (startFrame * bytesPerAudioFrame);
                 }
                 int written = localSourceDataLine.write(src, srcOffset, len); // blocking, no lock held
-                nextWriteCursorFrame += written / bytesPerAudioFrame;
+                int writtenFrames = written / bytesPerAudioFrame;
+                nextWriteCursorFrame += writtenFrames;
+                nextWriteCursorPlayableFrame += writtenFrames;
                 // Compute how many bytes are still buffered inside the line and
                 // publish the true rendered position — all from the pump thread so
                 // the EDT never has to touch the line monitor.
-                int queued = Math.max(0, localSourceDataLine.getBufferSize() - localSourceDataLine.available());
-                lastRenderedAudioFrame = Math.max(0, nextWriteCursorFrame - queued / bytesPerAudioFrame);
-                lastRenderTimestampNanos = System.nanoTime();
+                publishRenderedPositionFromLine(localSourceDataLine, ranges);
             } else {
                 if (playbackIsActive) {
                     localSourceDataLine.stop();
                     playbackIsActive = false;
                     lastRenderedAudioFrame = nextWriteCursorFrame; // line stopped; queue drained
+                    lastRenderedPlayableFrame = nextWriteCursorPlayableFrame;
                 }
                 synchronized (pumpWaitLock) {
                     try {
@@ -264,6 +279,32 @@ public class PcmWavPlaybackEngine {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Publish the source-frame position currently reaching the speakers. The line
+     * queue can span a deleted gap, so queue math is done in stitched playable
+     * frames and then mapped back to source frames for the UI playhead.
+     *
+     * @return queued audio frames still buffered in the line
+     */
+    private int publishRenderedPositionFromLine(SourceDataLine sourceDataLine, long[] ranges) {
+        int queuedBytes = Math.max(0, sourceDataLine.getBufferSize() - sourceDataLine.available());
+        int queuedFrames = queuedBytes / bytesPerAudioFrame;
+        long renderedPlayableFrame = Math.max(0, nextWriteCursorPlayableFrame - queuedFrames);
+        lastRenderedPlayableFrame = renderedPlayableFrame;
+        lastRenderedAudioFrame = playableOffsetToSourceFrame(renderedPlayableFrame, ranges);
+        lastRenderTimestampNanos = System.nanoTime();
+        return queuedFrames;
+    }
+
+    private void sleepBrieflyWhileDraining() {
+        try {
+            Thread.sleep(5);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            audioPumpThreadIsRunning = false;
         }
     }
 
@@ -364,6 +405,11 @@ public class PcmWavPlaybackEngine {
             return;
         }
         long[] ranges = playableFrameRanges;
+        if (ranges != null && ranges.length == 0) {
+            playbackIsRequested = false;
+            playbackIsActive = false;
+            return;
+        }
         // If the cursor sits at/after the end of all kept audio, restart from the
         // first kept range so Play always resumes something audible.
         if (playableIntervalEndContaining(nextWriteCursorFrame, ranges) < 0
@@ -380,7 +426,7 @@ public class PcmWavPlaybackEngine {
 
     public void stop() {
         playbackIsRequested = false;
-        pendingSeekTargetFrame = firstPlayableStart(playableFrameRanges);
+        pendingSeekTargetFrame = Math.max(0, firstPlayableStart(playableFrameRanges));
     }
 
     public void togglePlay() {
@@ -418,8 +464,10 @@ public class PcmWavPlaybackEngine {
         if (playbackIsActive) {
             long elapsedNanos = System.nanoTime() - lastRenderTimestampNanos;
             if (elapsedNanos > 0) {
-                f += (long) (elapsedNanos * sampleRateInHz / 1_000_000_000.0);
-                f = Math.min(f, nextWriteCursorFrame);
+                long playable = lastRenderedPlayableFrame
+                        + (long) (elapsedNanos * sampleRateInHz / 1_000_000_000.0);
+                playable = Math.min(playable, nextWriteCursorPlayableFrame);
+                f = playableOffsetToSourceFrame(playable, playableFrameRanges);
             }
         }
         return Math.max(0, Math.min(f, totalAudioFrameCount)) / (double) sampleRateInHz;
@@ -436,12 +484,17 @@ public class PcmWavPlaybackEngine {
      * the editor's surviving segments). Ranges are converted to frames, sorted,
      * clamped to the audio, and overlapping/adjacent ones merged; the pump skips
      * everything outside them and stitches the kept ranges together. Passing
-     * {@code null} or an empty array lifts the restriction (the whole file plays).
+     * {@code null} lifts the restriction (the whole file plays); passing an empty
+     * array restricts playback to no audio.
      * Callable from the EDT during playback — the pump picks up the new array on
      * its next chunk and skips into a kept range if the cursor was left in a gap.
      */
     public void setPlayableTimeRangesSeconds(double[] startEndPairsSeconds) {
-        if (startEndPairsSeconds == null || startEndPairsSeconds.length < 2) {
+        if (startEndPairsSeconds == null) {
+            playableFrameRanges = null;
+            return;
+        }
+        if (startEndPairsSeconds.length < 2) {
             playableFrameRanges = new long[0];
             return;
         }
@@ -489,7 +542,7 @@ public class PcmWavPlaybackEngine {
      * file is playable, so this returns {@link #totalAudioFrameCount} while in range.
      */
     private long playableIntervalEndContaining(long frame, long[] ranges) {
-        if (ranges.length == 0) {
+        if (ranges == null) {
             return frame < totalAudioFrameCount ? totalAudioFrameCount : -1;
         }
         for (int i = 0; i < ranges.length; i += 2) {
@@ -502,7 +555,7 @@ public class PcmWavPlaybackEngine {
 
     /** Start frame of the first kept range at or after {@code frame}, or -1 if none. */
     private long nextPlayableStartAfter(long frame, long[] ranges) {
-        if (ranges.length == 0) {
+        if (ranges == null) {
             return frame < totalAudioFrameCount ? Math.max(0, frame) : -1;
         }
         for (int i = 0; i < ranges.length; i += 2) {
@@ -515,7 +568,50 @@ public class PcmWavPlaybackEngine {
 
     /** Start frame of the first kept range (0 when unrestricted). */
     private long firstPlayableStart(long[] ranges) {
-        return ranges.length == 0 ? 0 : ranges[0];
+        if (ranges == null) {
+            return 0;
+        }
+        return ranges.length == 0 ? -1 : ranges[0];
+    }
+
+    private long sourceFrameToPlayableOffset(long sourceFrame, long[] ranges) {
+        long frame = Math.max(0, Math.min(sourceFrame, totalAudioFrameCount));
+        if (ranges == null) {
+            return frame;
+        }
+        long playableOffset = 0;
+        for (int i = 0; i < ranges.length; i += 2) {
+            long start = ranges[i];
+            long end = ranges[i + 1];
+            if (frame <= start) {
+                return playableOffset;
+            }
+            if (frame < end) {
+                return playableOffset + frame - start;
+            }
+            playableOffset += end - start;
+        }
+        return playableOffset;
+    }
+
+    private long playableOffsetToSourceFrame(long playableOffset, long[] ranges) {
+        long offset = Math.max(0, playableOffset);
+        if (ranges == null) {
+            return Math.max(0, Math.min(offset, totalAudioFrameCount));
+        }
+        if (ranges.length == 0) {
+            return 0;
+        }
+        for (int i = 0; i < ranges.length; i += 2) {
+            long start = ranges[i];
+            long end = ranges[i + 1];
+            long length = end - start;
+            if (offset < length) {
+                return start + offset;
+            }
+            offset -= length;
+        }
+        return ranges[ranges.length - 1];
     }
 
     // ---- metronome -------------------------------------------------------
@@ -574,7 +670,9 @@ public class PcmWavPlaybackEngine {
         nextWriteCursorFrame = 0;
         pendingSeekTargetFrame = -1;
         lastRenderedAudioFrame = 0;
-        playableFrameRanges = new long[0];
+        playableFrameRanges = null;
+        nextWriteCursorPlayableFrame = 0;
+        lastRenderedPlayableFrame = 0;
         beatFramePositions = new long[0];
         beatFramesSeenByPump = null;
         nextBeatIndex = 0;

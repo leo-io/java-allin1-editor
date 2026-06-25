@@ -505,6 +505,7 @@ public class MainFrame extends JFrame {
         if (isPlaying != lastKnownIsPlaying) {
             lastKnownIsPlaying = isPlaying;
             playPauseButton.setText(isPlaying ? "❚❚ Pause" : "▶ Play");
+            timelinePanel.repaint();
             if (isPlaying) {
                 followPlayhead = true;
             }

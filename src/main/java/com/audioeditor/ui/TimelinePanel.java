@@ -16,6 +16,7 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
@@ -201,8 +202,10 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     }
 
     private void repaintPlayheadRow(int segIndex, int xMin, int xMax) {
-        // Always start at x=0 so the header strip (where the bar/beat counter lives) is included.
-        repaint(0, rowTopY(segIndex) - 2, xMax + 4, rowHeightPixels + 4);
+        // The header counter changes as playback advances, and its text can extend
+        // beyond the playhead block. Repaint the full row so old counter glyphs do
+        // not remain when the displayed bar/beat count changes.
+        repaint(0, rowTopY(segIndex) - 2, getWidth(), rowHeightPixels + 4);
     }
 
     /**
@@ -432,10 +435,12 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             g.fillRect(0, yTop, 2, rowHeightPixels);
             g.fillRect(cw - 2, yTop, 2, rowHeightPixels);
             // label + bar/beat counter in header
+            g.setFont(segmentLabelFont);
             g.setColor(Color.WHITE);
             String headerText = cw > 150
                     ? String.format("%s - %s", s.getLabel(), buildSegmentCounter(s))
                     : s.getLabel();
+            headerText = fitTextToWidth(g, headerText, Math.max(0, cw - 12));
             g.drawString(headerText, 6, yTop + 15);
             // markers that fall inside this segment's time range
             drawDownbeatsInSegment(g, s, i, w, hdrBot, dbBot, yMin, yMax);
@@ -528,6 +533,32 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         }
 
         return String.format("%02d / %02d - %02d / %02d", playingBar, totalBars, playingBeat, totalBeats);
+    }
+
+    private String fitTextToWidth(Graphics2D g, String text, int maxWidthPixels) {
+        if (text == null || text.isEmpty() || maxWidthPixels <= 0) {
+            return "";
+        }
+        FontMetrics metrics = g.getFontMetrics();
+        if (metrics.stringWidth(text) <= maxWidthPixels) {
+            return text;
+        }
+        String suffix = "...";
+        int suffixWidth = metrics.stringWidth(suffix);
+        if (suffixWidth > maxWidthPixels) {
+            return "";
+        }
+        int low = 0;
+        int high = text.length();
+        while (low < high) {
+            int mid = (low + high + 1) / 2;
+            if (metrics.stringWidth(text.substring(0, mid)) + suffixWidth <= maxWidthPixels) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return text.substring(0, low) + suffix;
     }
 
     /**
