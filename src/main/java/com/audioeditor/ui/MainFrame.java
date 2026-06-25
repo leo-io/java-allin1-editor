@@ -71,6 +71,10 @@ public class MainFrame extends JFrame {
     private String lastRenderedPositionText = null;
     // Reused for follow-scroll so the 33 Hz tick never allocates a Rectangle.
     private final Rectangle scrollTargetRect = new Rectangle();
+    // When true the viewport auto-scrolls to keep the playhead visible.
+    // Cleared when the user manually scrolls during playback; restored on play-start.
+    private boolean followPlayhead = true;
+    private boolean isAutoScrolling = false;
 
     public MainFrame() {
         super("Audio Analysis JSON Editor");
@@ -82,6 +86,11 @@ public class MainFrame extends JFrame {
         timelineScrollPane = new JScrollPane(timelinePanel,
                 JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         timelineScrollPane.setBorder(BorderFactory.createTitledBorder("Timeline — segments stacked vertically: click to seek, drag markers/segments, double-click to play, right-click to delete"));
+        timelineScrollPane.getViewport().addChangeListener(e -> {
+            if (!isAutoScrolling && pcmWavPlaybackEngine.isPlaying()) {
+                followPlayhead = false;
+            }
+        });
 
         setJMenuBar(buildMenu());
 
@@ -273,6 +282,9 @@ public class MainFrame extends JFrame {
     }
 
     private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
+        if (!followPlayhead) {
+            return;
+        }
         int y = timelinePanel.getPlayheadCenterY();
         if (y < 0) {
             return;
@@ -290,8 +302,10 @@ public class MainFrame extends JFrame {
             newViewY = y - view.height + margin;
         }
         if (newViewY != view.y) {
+            isAutoScrolling = true;
             scrollTargetRect.setBounds(0, newViewY, timelinePanel.getWidth(), view.height);
             timelinePanel.scrollRectToVisible(scrollTargetRect);
+            isAutoScrolling = false;
         }
     }
 
@@ -471,6 +485,9 @@ public class MainFrame extends JFrame {
         if (isPlaying != lastKnownIsPlaying) {
             lastKnownIsPlaying = isPlaying;
             playPauseButton.setText(isPlaying ? "❚❚ Pause" : "▶ Play");
+            if (isPlaying) {
+                followPlayhead = true;
+            }
         }
     }
 

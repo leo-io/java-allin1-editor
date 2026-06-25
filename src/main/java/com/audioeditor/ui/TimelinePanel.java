@@ -199,9 +199,8 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     }
 
     private void repaintPlayheadRow(int segIndex, int xMin, int xMax) {
-        int x = Math.max(0, xMin - 2);
-        int wdt = (xMax + 2) - x;
-        repaint(x, rowTopY(segIndex) - 2, wdt, rowHeightPixels + 4);
+        // Always start at x=0 so the header strip (where the bar/beat counter lives) is included.
+        repaint(0, rowTopY(segIndex) - 2, xMax + 4, rowHeightPixels + 4);
     }
 
     /**
@@ -430,10 +429,10 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             g.setColor(SEGMENT_EDGE_HANDLE_COLOR);
             g.fillRect(0, yTop, 2, rowHeightPixels);
             g.fillRect(cw - 2, yTop, 2, rowHeightPixels);
-            // label + duration in header
+            // label + bar/beat counter in header
             g.setColor(Color.WHITE);
             String headerText = cw > 150
-                    ? String.format("%s  (%.1fs)", s.getLabel(), s.getDuration())
+                    ? String.format("%s - %s", s.getLabel(), buildSegmentCounter(s))
                     : s.getLabel();
             g.drawString(headerText, 6, yTop + 15);
             // markers that fall inside this segment's time range
@@ -491,6 +490,37 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 g.drawString(barPositionLabel(b.getPosition()), x + 2, zoneBottom - 3);
             }
         }
+    }
+
+    private String buildSegmentCounter(Segment s) {
+        double start = s.getStart();
+        double end = s.getEnd();
+        double pos = playheadPositionInSeconds;
+        List<Double> downbeats = model.getDownbeats();
+        List<Beat> beats = model.getBeats();
+
+        int totalBars = 0;
+        for (double db : downbeats) {
+            if (db >= start && db <= end) totalBars++;
+        }
+        int totalBeats = 0;
+        for (Beat b : beats) {
+            if (b.getTime() >= start && b.getTime() <= end) totalBeats++;
+        }
+
+        boolean active = audio.isPlaying() && pos >= start && pos <= end;
+        int playingBar = 0;
+        int playingBeat = 0;
+        if (active) {
+            for (double db : downbeats) {
+                if (db >= start && db <= pos) playingBar++;
+            }
+            for (Beat b : beats) {
+                if (b.getTime() >= start && b.getTime() <= pos) playingBeat++;
+            }
+        }
+
+        return String.format("%02d / %02d - %02d / %02d", playingBar, totalBars, playingBeat, totalBeats);
     }
 
     /**
