@@ -122,6 +122,96 @@ public class ProjectModel {
         move(segmentList, from, to);
     }
 
+    public boolean renameSegment(int segmentIndex, String newLabel) {
+        if (!isValidSegmentIndex(segmentIndex) || newLabel == null || newLabel.isBlank()) {
+            return false;
+        }
+        Segment segment = segmentList.get(segmentIndex);
+        String trimmed = newLabel.trim();
+        if (trimmed.equals(segment.getLabel())) {
+            return false;
+        }
+        segment.setLabel(trimmed);
+        rememberLabel(trimmed);
+        notifyAllProjectChangeListeners();
+        return true;
+    }
+
+    public List<Segment> copySegmentsAtIndices(List<Integer> segmentIndices) {
+        List<Segment> copies = new ArrayList<>();
+        for (int index : sortedUniqueValidSegmentIndices(segmentIndices)) {
+            copies.add(segmentList.get(index).copy());
+        }
+        return copies;
+    }
+
+    public int pasteSegmentCopiesAfter(int afterSegmentIndex, List<Segment> segmentsToPaste) {
+        if (segmentsToPaste == null || segmentsToPaste.isEmpty()) {
+            return -1;
+        }
+        int insertAt = Math.max(0, Math.min(afterSegmentIndex + 1, segmentList.size()));
+        int cursor = insertAt;
+        for (Segment segment : segmentsToPaste) {
+            if (segment == null) {
+                continue;
+            }
+            Segment copy = segment.copy();
+            segmentList.add(cursor++, copy);
+            rememberLabel(copy.getLabel());
+        }
+        if (cursor == insertAt) {
+            return -1;
+        }
+        notifyAllProjectChangeListeners();
+        return insertAt;
+    }
+
+    public boolean canMergeAdjacentSegments(List<Integer> segmentIndices) {
+        List<Integer> indices = sortedUniqueValidSegmentIndices(segmentIndices);
+        return indices.size() >= 2 && areContiguous(indices);
+    }
+
+    public int mergeAdjacentSegments(List<Integer> segmentIndices) {
+        List<Integer> indices = sortedUniqueValidSegmentIndices(segmentIndices);
+        if (indices.size() < 2 || !areContiguous(indices)) {
+            return -1;
+        }
+        int targetIndex = indices.get(0);
+        Segment target = segmentList.get(targetIndex);
+        for (int i = 1; i < indices.size(); i++) {
+            target.getBars().addAll(segmentList.get(indices.get(i)).getBars());
+        }
+        for (int i = indices.size() - 1; i >= 1; i--) {
+            segmentList.remove((int) indices.get(i));
+        }
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+        return segmentList.indexOf(target);
+    }
+
+    public boolean canSplitSegmentAtNearestBarBoundary(int segmentIndex) {
+        return isValidSegmentIndex(segmentIndex) && segmentList.get(segmentIndex).getBars().size() >= 2;
+    }
+
+    public int splitSegmentAtNearestBarBoundary(int segmentIndex, double timeInSeconds) {
+        if (!canSplitSegmentAtNearestBarBoundary(segmentIndex)) {
+            return -1;
+        }
+        Segment source = segmentList.get(segmentIndex);
+        int splitBarIndex = nearestInternalBarBoundaryIndex(source, timeInSeconds);
+        if (splitBarIndex <= 0 || splitBarIndex >= source.getBars().size()) {
+            return -1;
+        }
+        Segment right = new Segment(source.getLabel());
+        List<Bar> sourceBars = source.getBars();
+        right.getBars().addAll(new ArrayList<>(sourceBars.subList(splitBarIndex, sourceBars.size())));
+        sourceBars.subList(splitBarIndex, sourceBars.size()).clear();
+        segmentList.add(segmentIndex + 1, right);
+        rememberLabel(right.getLabel());
+        notifyAllProjectChangeListeners();
+        return segmentIndex + 1;
+    }
+
     /** Sort segments ascending by computed start time (first beat's start). */
     public void sortSegments() {
         segmentList.sort(Comparator.comparingDouble(Segment::getStart));
@@ -359,6 +449,41 @@ public class ProjectModel {
 
     private boolean isValidSegmentIndex(int segmentIndex) {
         return segmentIndex >= 0 && segmentIndex < segmentList.size();
+    }
+
+    private List<Integer> sortedUniqueValidSegmentIndices(List<Integer> segmentIndices) {
+        if (segmentIndices == null || segmentIndices.isEmpty()) {
+            return List.of();
+        }
+        return segmentIndices.stream()
+                .filter(index -> index != null)
+                .filter(this::isValidSegmentIndex)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private boolean areContiguous(List<Integer> sortedIndices) {
+        for (int i = 1; i < sortedIndices.size(); i++) {
+            if (sortedIndices.get(i) != sortedIndices.get(i - 1) + 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private int nearestInternalBarBoundaryIndex(Segment segment, double timeInSeconds) {
+        int bestIndex = -1;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        for (int i = 1; i < segment.getBars().size(); i++) {
+            double boundaryTime = segment.getBars().get(i).getStartTime();
+            double distance = Math.abs(boundaryTime - timeInSeconds);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
     }
 
     private boolean canMoveFirstFragmentToPreviousSegment(int segmentIndex) {

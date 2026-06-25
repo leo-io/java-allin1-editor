@@ -6,9 +6,12 @@ import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
 
+import javax.swing.AbstractAction;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.KeyStroke;
 import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
@@ -21,8 +24,12 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,6 +125,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     private final ProjectModel model;
     private final PcmWavPlaybackEngine audio;
     private final SelectionModel selection;
+    private final List<Segment> segmentClipboard = new ArrayList<>();
 
     private int rowHeightPixels = DEFAULT_ROW_HEIGHT_PIXELS;
     private double playheadPositionInSeconds = 0.0;
@@ -161,7 +169,52 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         Mouse m = new Mouse();
         addMouseListener(m);
         addMouseMotionListener(m);
+        setFocusable(true);
+        registerKeyboardActions();
         setToolTipText("");
+    }
+
+    private void registerKeyboardActions() {
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copySegments");
+        getActionMap().put("copySegments", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelectedSegments();
+            }
+        });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), "pasteSegments");
+        getActionMap().put("pasteSegments", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                pasteSegmentsAfterSelection();
+            }
+        });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.CTRL_DOWN_MASK), "mergeSegments");
+        getActionMap().put("mergeSegments", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                mergeSelectedSegments();
+            }
+        });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "renameSegment");
+        getActionMap().put("renameSegment", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                renamePrimarySelectedSegment();
+            }
+        });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_S,
+                InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "splitSegment");
+        getActionMap().put("splitSegment", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                splitPrimarySelectedSegmentAt(playheadPositionInSeconds);
+            }
+        });
     }
 
     public void setRowHeight(int rowHeightPixels) {
@@ -865,6 +918,16 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
 
     // ---- mouse interaction ----------------------------------------------
 
+    private void handleSegmentSelectionClick(MouseEvent e, int segmentIndex) {
+        if (e.isShiftDown()) {
+            selection.selectSegmentRange(segmentIndex);
+        } else if (e.isControlDown() || e.isMetaDown()) {
+            selection.toggleSegment(segmentIndex);
+        } else {
+            selection.selectSegment(segmentIndex);
+        }
+    }
+
     private class Mouse extends MouseAdapter {
         @Override
         public void mousePressed(MouseEvent e) {
@@ -881,7 +944,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 int si = hitSegmentRow(y);
                 if (si >= 0) {
                     Segment s = model.getSegments().get(si);
-                    selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                    selection.selectSegment(si);
                     audio.seekSeconds(s.getStart());
                     setPlayheadPositionInSeconds(s.getStart());
                     audio.play();
@@ -899,7 +962,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
 
             // edge grabs take priority (left = start, right = end)
             if (x <= SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                handleSegmentSelectionClick(e, si);
                 activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_START_EDGE;
                 draggedItemIndex = si;
                 dragSegmentIndex = si;
@@ -909,7 +972,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 return;
             }
             if (x >= cw - SEGMENT_EDGE_GRAB_WIDTH_PIXELS && x < cw + SEGMENT_EDGE_GRAB_WIDTH_PIXELS) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                handleSegmentSelectionClick(e, si);
                 activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_END_EDGE;
                 draggedItemIndex = si;
                 dragSegmentIndex = si;
@@ -922,7 +985,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             // clicks in the empty space to the right of a short segment's
             // content area just select the segment without seeking
             if (x > cw) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                handleSegmentSelectionClick(e, si);
                 activeDragOperation = TimelineDragOperation.NO_DRAG_ACTIVE;
                 draggedItemIndex = -1;
                 dragSegmentIndex = si;
@@ -934,7 +997,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
 
             // header zone → select + drag segment body
             if (y < hdrBot) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+                handleSegmentSelectionClick(e, si);
                 activeDragOperation = TimelineDragOperation.DRAGGING_SEGMENT_BODY;
                 draggedItemIndex = si;
                 dragSegmentIndex = si;
@@ -1238,6 +1301,92 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         setPlayheadPositionInSeconds(targetTimeInSeconds);
     }
 
+    private void renamePrimarySelectedSegment() {
+        renameSegmentAt(selection.getPrimarySelectedSegmentIndex());
+    }
+
+    private void renameSegmentAt(int segmentIndex) {
+        if (segmentIndex < 0 || segmentIndex >= model.getSegments().size()) {
+            return;
+        }
+        Segment segment = model.getSegments().get(segmentIndex);
+        String newLabel = JOptionPane.showInputDialog(this, "Segment name:", segment.getLabel());
+        if (newLabel == null) {
+            return;
+        }
+        if (model.renameSegment(segmentIndex, newLabel)) {
+            selection.selectSegment(segmentIndex);
+            LOG.fine("Timeline: renamed segment #" + segmentIndex + " to " + newLabel.trim());
+        }
+    }
+
+    private void copySelectedSegments() {
+        List<Integer> selectedIndices = selection.getSelectedSegmentIndices();
+        if (selectedIndices.isEmpty()) {
+            return;
+        }
+        segmentClipboard.clear();
+        segmentClipboard.addAll(model.copySegmentsAtIndices(selectedIndices));
+        LOG.fine("Timeline: copied " + segmentClipboard.size() + " segment(s)");
+    }
+
+    private void pasteSegmentsAfterSelection() {
+        if (segmentClipboard.isEmpty()) {
+            return;
+        }
+        int afterIndex = maxSelectedSegmentIndex();
+        if (afterIndex < 0) {
+            return;
+        }
+        int insertedAt = model.pasteSegmentCopiesAfter(afterIndex, segmentClipboard);
+        if (insertedAt >= 0) {
+            selectSegmentRange(insertedAt, insertedAt + segmentClipboard.size() - 1);
+            LOG.fine("Timeline: pasted " + segmentClipboard.size() + " segment(s) after #" + afterIndex);
+        }
+    }
+
+    private void mergeSelectedSegments() {
+        List<Integer> selectedIndices = selection.getSelectedSegmentIndices();
+        int mergedIndex = model.mergeAdjacentSegments(selectedIndices);
+        if (mergedIndex >= 0) {
+            selection.selectSegment(mergedIndex);
+            LOG.fine("Timeline: merged selected segments into #" + mergedIndex);
+        }
+    }
+
+    private void splitPrimarySelectedSegmentAt(double timeInSeconds) {
+        int segmentIndex = selection.getPrimarySelectedSegmentIndex();
+        if (segmentIndex < 0 || segmentIndex >= model.getSegments().size()) {
+            segmentIndex = findSegmentContainingTime(timeInSeconds);
+        }
+        splitSegmentAt(segmentIndex, timeInSeconds);
+    }
+
+    private void splitSegmentAt(int segmentIndex, double timeInSeconds) {
+        int newIndex = model.splitSegmentAtNearestBarBoundary(segmentIndex, timeInSeconds);
+        if (newIndex >= 0) {
+            selection.selectSegment(newIndex);
+            LOG.fine("Timeline: split segment #" + segmentIndex + " at " + timeInSeconds + "s");
+        }
+    }
+
+    private int maxSelectedSegmentIndex() {
+        int max = -1;
+        for (int index : selection.getSelectedSegmentIndices()) {
+            max = Math.max(max, index);
+        }
+        return max;
+    }
+
+    private void selectSegmentRange(int firstIndex, int lastIndex) {
+        List<Integer> indices = new ArrayList<>();
+        int max = model.getSegments().size() - 1;
+        for (int i = Math.max(0, firstIndex); i <= Math.min(max, lastIndex); i++) {
+            indices.add(i);
+        }
+        selection.selectSegments(indices);
+    }
+
     private void showContextMenu(MouseEvent e) {
         int x = e.getX();
         int y = e.getY();
@@ -1310,7 +1459,36 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             }
         }
 
-        selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, si);
+        if (!selection.isItemSelected(SelectionModel.SelectableItemType.SEGMENT, si)) {
+            selection.selectSegment(si);
+        }
+        int cw = segmentContentWidth(s, w);
+        double clickedTime = x < cw ? xToTimeInSegment(x, s, w) : s.getStart();
+
+        JMenuItem rename = new JMenuItem("Rename segment...");
+        rename.addActionListener(a -> renameSegmentAt(si));
+        menu.add(rename);
+
+        JMenuItem copy = new JMenuItem("Copy segment(s)");
+        copy.addActionListener(a -> copySelectedSegments());
+        menu.add(copy);
+
+        JMenuItem paste = new JMenuItem("Paste segment(s)");
+        paste.setEnabled(!segmentClipboard.isEmpty());
+        paste.addActionListener(a -> pasteSegmentsAfterSelection());
+        menu.add(paste);
+
+        JMenuItem merge = new JMenuItem("Merge selected segments");
+        merge.setEnabled(model.canMergeAdjacentSegments(selection.getSelectedSegmentIndices()));
+        merge.addActionListener(a -> mergeSelectedSegments());
+        menu.add(merge);
+
+        JMenuItem split = new JMenuItem("Split segment here");
+        split.setEnabled(x < cw && model.canSplitSegmentAtNearestBarBoundary(si));
+        split.addActionListener(a -> splitSegmentAt(si, clickedTime));
+        menu.add(split);
+
+        menu.addSeparator();
         JMenuItem del = new JMenuItem("Delete segment");
         del.addActionListener(a -> {
             LOG.fine("Timeline: delete segment #" + si + " (context menu)");
@@ -1318,9 +1496,8 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         });
         menu.add(del);
         addSegmentBorderRepairItems(menu, si);
-        int cw = segmentContentWidth(s, w);
         if (x < cw) {
-            double t = xToTimeInSegment(x, s, w);
+            double t = clickedTime;
             menu.addSeparator();
             JMenuItem addBeat = new JMenuItem("Add beat here");
             addBeat.addActionListener(a -> {

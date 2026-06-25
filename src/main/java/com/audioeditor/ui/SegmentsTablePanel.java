@@ -16,6 +16,8 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
@@ -41,18 +43,25 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         this.selection = selection;
         this.tableModel = new SegmentTableModel();
         this.table = new JTable(tableModel);
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setFillsViewportHeight(true);
 
         table.getSelectionModel().addListSelectionListener(e -> {
             if (isSuppressingSelectionFeedback || e.getValueIsAdjusting()) {
                 return;
             }
-            int row = table.getSelectedRow();
-            if (row >= 0 && row < model.getSegments().size()) {
-                selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row);
+            int[] rows = table.getSelectedRows();
+            if (rows.length > 0) {
+                List<Integer> selectedRows = new ArrayList<>();
+                for (int row : rows) {
+                    if (row >= 0 && row < model.getSegments().size()) {
+                        selectedRows.add(row);
+                    }
+                }
+                selection.selectSegments(selectedRows);
+                int row = table.getSelectedRow();
                 double t = model.getSegments().get(row).getStart();
-                LOG.fine("Segments table: selected row " + row + " (segment at " + t + "s), seeking");
+                LOG.fine("Segments table: selected " + selectedRows.size() + " segment row(s), seeking to row " + row);
                 audio.seekSeconds(t);
             }
         });
@@ -69,7 +78,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
     private void rebuildSegmentLabelComboBoxEditor() {
         JComboBox<String> combo = new JComboBox<>(model.getLabelVocabulary().toArray(new String[0]));
         combo.setEditable(true);
-        table.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(combo));
+        table.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(combo));
     }
 
     private JPanel buildButtons() {
@@ -147,13 +156,8 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
 
     @Override
     public void modelChanged() {
-        int sel = table.getSelectedRow();
         tableModel.fireTableDataChanged();
-        if (sel >= 0 && sel < tableModel.getRowCount()) {
-            isSuppressingSelectionFeedback = true;
-            table.setRowSelectionInterval(sel, sel);
-            isSuppressingSelectionFeedback = false;
-        }
+        selectionChanged();
     }
 
     @Override
@@ -161,13 +165,22 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         if (selection.getSelectedItemType() != SelectionModel.SelectableItemType.SEGMENT) {
             return;
         }
-        int i = selection.getSelectedItemIndex();
-        if (i >= 0 && i < tableModel.getRowCount() && table.getSelectedRow() != i) {
-            isSuppressingSelectionFeedback = true;
-            table.setRowSelectionInterval(i, i);
-            table.scrollRectToVisible(table.getCellRect(i, 0, true));
-            isSuppressingSelectionFeedback = false;
+        List<Integer> indices = selection.getSelectedSegmentIndices();
+        if (indices.isEmpty()) {
+            return;
         }
+        isSuppressingSelectionFeedback = true;
+        table.clearSelection();
+        for (int i : indices) {
+            if (i >= 0 && i < tableModel.getRowCount()) {
+                table.addRowSelectionInterval(i, i);
+            }
+        }
+        int primary = selection.getPrimarySelectedSegmentIndex();
+        if (primary >= 0 && primary < tableModel.getRowCount()) {
+            table.scrollRectToVisible(table.getCellRect(primary, 0, true));
+        }
+        isSuppressingSelectionFeedback = false;
     }
 
     private class SegmentTableModel extends AbstractTableModel {
