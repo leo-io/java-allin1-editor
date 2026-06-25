@@ -195,7 +195,7 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
                         return;
                     }
                 }
-                model.notifyAllProjectChangeListeners();
+                model.normalizeProjectStructureAndNotify();
                 LOG.fine("Beats table: edited row " + r + " col " + c + " = " + v);
             } catch (NumberFormatException ignored) {
             }
@@ -212,7 +212,7 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
             for (Segment s : model.getSegments()) {
                 for (Bar bar : s.getBars()) {
                     if (bar.getBeats().remove(beat)) {
-                        model.notifyAllProjectChangeListeners();
+                        model.normalizeProjectStructureAndNotify();
                         return;
                     }
                 }

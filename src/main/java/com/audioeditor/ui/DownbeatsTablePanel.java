@@ -194,7 +194,7 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
         void removeBar(Bar bar) {
             for (Segment s : model.getSegments()) {
                 if (s.getBars().remove(bar)) {
-                    model.notifyAllProjectChangeListeners();
+                    model.normalizeProjectStructureAndNotify();
                     return;
                 }
             }

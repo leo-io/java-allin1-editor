@@ -1,6 +1,8 @@
 package com.audioeditor.ui;
 
 import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.model.Bar;
+import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
 
@@ -81,6 +83,10 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
 
         add.addActionListener(a -> {
             Segment seg = new Segment("verse");
+            double start = model.getMaxTime();
+            Bar bar = new Bar();
+            bar.addBeat(new Beat(true, start, start + 10));
+            seg.addBar(bar);
             model.addSegment(seg);
             rebuildSegmentLabelComboBoxEditor();
             selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);

@@ -11,17 +11,17 @@ import java.io.File;
 import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonIORoundTripTest {
 
     @Test
     void loadSaveLoadPreservesData() throws Exception {
-        File src = new File("20260612_163540-sleeping.json");
-        if (!src.exists()) {
-            // sample not present in this environment; skip silently
-            return;
-        }
+        ProjectModel sourceModel = sampleNestedProject();
+        File src = Files.createTempFile("editor-source", ".json").toFile();
+        src.deleteOnExit();
+        AllIn1JsonFileRepository.INSTANCE.saveToFile(sourceModel, src);
 
         ProjectModel a = AllIn1JsonFileRepository.INSTANCE.loadFromFile(src);
         File tmp = Files.createTempFile("editor-roundtrip", ".json").toFile();
@@ -59,16 +59,7 @@ class JsonIORoundTripTest {
 
     @Test
     void editsPersist() throws Exception {
-        ProjectModel m = new ProjectModel();
-        m.setAudioPath("C:/audio/song.wav");
-        m.setBpm(123.5);
-
-        Segment seg = new Segment("intro");
-        Bar bar = new Bar();
-        bar.addBeat(new Beat(true, 0.5, 1.0));
-        bar.addBeat(new Beat(false, 1.0, 1.5));
-        seg.addBar(bar);
-        m.addSegment(seg);
+        ProjectModel m = sampleNestedProject();
 
         File tmp = Files.createTempFile("editor-edits", ".json").toFile();
         tmp.deleteOnExit();
@@ -84,5 +75,37 @@ class JsonIORoundTripTest {
         assertTrue(r.getSegments().get(0).getBars().get(0).getBeats().get(0).isDownbeat());
         assertEquals(0.5, r.getSegments().get(0).getBars().get(0).getBeats().get(0).getStart(), 1e-9);
         assertTrue(tmp.length() > 0);
+    }
+
+    @Test
+    void legacyFlatJsonIsRejected() throws Exception {
+        File tmp = Files.createTempFile("editor-legacy", ".json").toFile();
+        tmp.deleteOnExit();
+        Files.writeString(tmp.toPath(), """
+                {
+                  "path": "C:/audio/song.wav",
+                  "bpm": 120,
+                  "beats": [0.0, 0.5],
+                  "downbeats": [0.0],
+                  "beat_positions": [1, 2],
+                  "segments": [{"start": 0.0, "end": 1.0, "label": "intro"}]
+                }
+                """);
+
+        assertThrows(Exception.class, () -> AllIn1JsonFileRepository.INSTANCE.loadFromFile(tmp));
+    }
+
+    private ProjectModel sampleNestedProject() {
+        ProjectModel m = new ProjectModel();
+        m.setAudioPath("C:/audio/song.wav");
+        m.setBpm(123.5);
+
+        Segment seg = new Segment("intro");
+        Bar bar = new Bar();
+        bar.addBeat(new Beat(true, 0.5, 1.0));
+        bar.addBeat(new Beat(false, 1.0, 1.5));
+        seg.addBar(bar);
+        m.addSegment(seg);
+        return m;
     }
 }

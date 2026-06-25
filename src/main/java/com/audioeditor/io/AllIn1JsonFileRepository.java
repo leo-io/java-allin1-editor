@@ -47,6 +47,10 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
         JsonNode root = JSON_OBJECT_MAPPER.readTree(analysisJsonFile);
         ProjectModel model = new ProjectModel();
 
+        if (root.has("beats") || root.has("downbeats") || root.has("beat_positions")) {
+            throw new IOException("Unsupported legacy JSON format: expected segments[].bars[].beats[] only");
+        }
+
         if (root.hasNonNull("path")) {
             model.setAudioPath(root.get("path").asText());
         }
@@ -61,22 +65,24 @@ public final class AllIn1JsonFileRepository implements MusicAnalysisFileReposito
                 Segment seg = new Segment(label);
 
                 JsonNode bars = segNode.get("bars");
-                if (bars != null && bars.isArray()) {
-                    for (JsonNode barNode : bars) {
-                        Bar bar = new Bar();
+                if (bars == null || !bars.isArray()) {
+                    throw new IOException("Unsupported segment JSON format: each segment must contain a bars array");
+                }
+                for (JsonNode barNode : bars) {
+                    Bar bar = new Bar();
 
-                        JsonNode beats = barNode.get("beats");
-                        if (beats != null && beats.isArray()) {
-                            for (JsonNode beatNode : beats) {
-                                boolean isDownbeat = beatNode.path("isDownbeat").asBoolean();
-                                double start = beatNode.path("start").asDouble();
-                                double end = beatNode.path("end").asDouble();
-                                bar.addBeat(new Beat(isDownbeat, start, end));
-                            }
-                        }
-
-                        seg.addBar(bar);
+                    JsonNode beats = barNode.get("beats");
+                    if (beats == null || !beats.isArray()) {
+                        throw new IOException("Unsupported bar JSON format: each bar must contain a beats array");
                     }
+                    for (JsonNode beatNode : beats) {
+                        boolean isDownbeat = beatNode.path("isDownbeat").asBoolean();
+                        double start = beatNode.path("start").asDouble();
+                        double end = beatNode.path("end").asDouble();
+                        bar.addBeat(new Beat(isDownbeat, start, end));
+                    }
+
+                    seg.addBar(bar);
                 }
 
                 model.addSegment(seg);

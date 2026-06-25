@@ -126,6 +126,36 @@ public class ProjectModel {
         notifyAllProjectChangeListeners();
     }
 
+    /**
+     * Restore ordering and basic timing invariants after low-level edits.
+     * Bars/beats are sorted by time, every bar starts with exactly one downbeat,
+     * and adjacent beats inside a bar are made contiguous.
+     */
+    public void normalizeProjectStructure() {
+        for (Segment segment : segmentList) {
+            segment.getBars().removeIf(bar -> bar.getBeats().isEmpty());
+            for (Bar bar : segment.getBars()) {
+                bar.getBeats().sort(Comparator.comparingDouble(Beat::getStart));
+                for (int i = 0; i < bar.getBeats().size(); i++) {
+                    Beat beat = bar.getBeats().get(i);
+                    beat.setDownbeat(i == 0);
+                    if (i < bar.getBeats().size() - 1) {
+                        beat.setEnd(Math.max(beat.getStart(), bar.getBeats().get(i + 1).getStart()));
+                    } else if (beat.getEnd() <= beat.getStart()) {
+                        beat.setEnd(beat.getStart() + 0.5);
+                    }
+                }
+            }
+            segment.getBars().sort(Comparator.comparingDouble(Bar::getStartTime));
+        }
+        segmentList.sort(Comparator.comparingDouble(Segment::getStart));
+    }
+
+    public void normalizeProjectStructureAndNotify() {
+        normalizeProjectStructure();
+        notifyAllProjectChangeListeners();
+    }
+
     // ---- flat-iteration helpers for the new hierarchy ------------------
 
     /** All beats across all segments/bars, in playback order. */

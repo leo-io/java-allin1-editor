@@ -455,17 +455,17 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             }
         }
 
-        int barIndex = 0;
+        int flatBarIndex = getFlatBarStartIndexForSegment(s);
         for (Bar bar : s.getBars()) {
             if (!bar.getBeats().isEmpty() && bar.getBeats().get(0).isDownbeat()) {
                 double t = bar.getBeats().get(0).getStart();
                 int x = timeToXInSegment(t, s, w);
-                boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.BAR, barIndex);
+                boolean sel = selection.isItemSelected(SelectionModel.SelectableItemType.BAR, flatBarIndex);
                 g.setColor(sel ? Color.WHITE : DOWNBEAT_COLOR);
                 g.setStroke(sel ? DOWNBEAT_STROKE_SELECTED : DOWNBEAT_STROKE);
                 g.drawLine(x, zoneTop, x, zoneBottom);
             }
-            barIndex++;
+            flatBarIndex++;
         }
     }
 
@@ -555,7 +555,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 g.drawLine(x, zoneTop, x, zoneBottom);
             }
         } else if (activeDragOperation == TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER) {
-            Bar bar = getBarForDownbeatAtSegmentIndex(dragSegmentIndex, draggedItemIndex);
+            Bar bar = getBarAtFlatIndex(draggedItemIndex);
             if (bar != null && !bar.getBeats().isEmpty() && bar.getBeats().get(0).isDownbeat()) {
                 double t = bar.getBeats().get(0).getStart();
                 if (!isTimeWithinAnySegment(t)) {
@@ -748,7 +748,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         int best = -1;
         int bestD = HIT_TEST_TOLERANCE_PIXELS + 1;
 
-        int barIndex = 0;
+        int barIndex = getFlatBarStartIndexForSegment(s);
         for (Bar bar : s.getBars()) {
             if (!bar.getBeats().isEmpty() && bar.getBeats().get(0).isDownbeat()) {
                 double t = bar.getBeats().get(0).getStart();
@@ -779,18 +779,56 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         return null;
     }
 
-    /** Find a bar (by its local index within a segment) that has a downbeat at the given bar index. */
-    private Bar getBarForDownbeatAtSegmentIndex(int segmentIndex, int barIndex) {
-        if (segmentIndex < 0 || segmentIndex >= model.getSegments().size()) {
-            return null;
+    private int getFlatBarStartIndexForSegment(Segment targetSegment) {
+        int index = 0;
+        for (Segment segment : model.getSegments()) {
+            if (segment == targetSegment) {
+                return index;
+            }
+            index += segment.getBars().size();
         }
-        Segment s = model.getSegments().get(segmentIndex);
-        int currentBarIndex = 0;
-        for (Bar bar : s.getBars()) {
-            if (currentBarIndex == barIndex) return bar;
-            currentBarIndex++;
+        return index;
+    }
+
+    private Bar getBarAtFlatIndex(int flatIndex) {
+        int index = 0;
+        for (Segment s : model.getSegments()) {
+            for (Bar bar : s.getBars()) {
+                if (index == flatIndex) {
+                    return bar;
+                }
+                index++;
+            }
         }
         return null;
+    }
+
+    private int getFlatBeatIndex(Beat targetBeat) {
+        int index = 0;
+        for (Segment s : model.getSegments()) {
+            for (Bar bar : s.getBars()) {
+                for (Beat b : bar.getBeats()) {
+                    if (b == targetBeat) {
+                        return index;
+                    }
+                    index++;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private int getFlatBarIndex(Bar targetBar) {
+        int index = 0;
+        for (Segment s : model.getSegments()) {
+            for (Bar bar : s.getBars()) {
+                if (bar == targetBar) {
+                    return index;
+                }
+                index++;
+            }
+        }
+        return -1;
     }
 
     // ---- mouse interaction ----------------------------------------------
@@ -886,7 +924,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                     activeDragOperation = TimelineDragOperation.DRAGGING_DOWNBEAT_MARKER;
                     draggedItemIndex = di;
                     dragSegmentIndex = si;
-                    Bar bar = getBarForDownbeatAtSegmentIndex(si, di);
+                    Bar bar = getBarAtFlatIndex(di);
                     double t = (bar != null && !bar.getBeats().isEmpty()) ? bar.getBeats().get(0).getStart() : 0;
                     LOG.fine("Timeline: selected downbeat (bar) #" + di + " at " + t + "s");
                     seekAndUpdatePlayhead(t);
@@ -947,7 +985,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                     }
                 }
                 case DRAGGING_DOWNBEAT_MARKER -> {
-                    Bar bar = getBarForDownbeatAtSegmentIndex(dragSegmentIndex, draggedItemIndex);
+                    Bar bar = getBarAtFlatIndex(draggedItemIndex);
                     if (bar != null && !bar.getBeats().isEmpty() && bar.getBeats().get(0).isDownbeat()) {
                         Segment dragSeg = model.getSegments().get(dragSegmentIndex);
                         double t = xToTimeInSegment(e.getX(), dragSeg, w);
@@ -1022,10 +1060,145 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     }
 
     private void reselect(SelectionModel.SelectableItemType itemType, int mx) {
-        if (dragSegmentIndex < 0 || dragSegmentIndex >= model.getSegments().size()) {
+        if (itemType == SelectionModel.SelectableItemType.BEAT) {
+            Beat beat = getBeatAtFlatIndex(draggedItemIndex);
+            if (beat != null) {
+                reassignBeatToTimeOwner(beat);
+                model.normalizeProjectStructureAndNotify();
+                int newIndex = getFlatBeatIndex(beat);
+                if (newIndex >= 0) {
+                    selection.selectItem(SelectionModel.SelectableItemType.BEAT, newIndex);
+                }
+            }
+        } else if (itemType == SelectionModel.SelectableItemType.BAR) {
+            Bar bar = getBarAtFlatIndex(draggedItemIndex);
+            if (bar != null) {
+                reassignBarToTimeOwner(bar);
+                model.normalizeProjectStructureAndNotify();
+                int newIndex = getFlatBarIndex(bar);
+                if (newIndex >= 0) {
+                    selection.selectItem(SelectionModel.SelectableItemType.BAR, newIndex);
+                }
+            }
+        }
+    }
+
+    private void reassignBeatToTimeOwner(Beat beat) {
+        Segment targetSegment = findSegmentContainingTimeExcludingBeat(beat.getStart(), beat);
+        if (targetSegment == null && dragSegmentIndex >= 0 && dragSegmentIndex < model.getSegments().size()) {
+            targetSegment = model.getSegments().get(dragSegmentIndex);
+        }
+        if (targetSegment == null) {
             return;
         }
-        Segment s = model.getSegments().get(dragSegmentIndex);
+
+        Bar targetBar = findBarContainingTimeExcludingBeat(targetSegment, beat.getStart(), beat);
+        if (targetBar == null) {
+            targetBar = new Bar();
+            targetSegment.addBar(targetBar);
+        }
+
+        for (Segment segment : model.getSegments()) {
+            for (Bar bar : segment.getBars()) {
+                if (bar != targetBar && bar.getBeats().remove(beat)) {
+                    targetBar.addBeat(beat);
+                    return;
+                }
+            }
+        }
+        if (!targetBar.getBeats().contains(beat)) {
+            targetBar.addBeat(beat);
+        }
+    }
+
+    private void reassignBarToTimeOwner(Bar targetBar) {
+        if (targetBar.getBeats().isEmpty()) {
+            return;
+        }
+        Segment targetSegment = findSegmentContainingTimeExcludingBar(targetBar.getStartTime(), targetBar);
+        if (targetSegment == null && dragSegmentIndex >= 0 && dragSegmentIndex < model.getSegments().size()) {
+            targetSegment = model.getSegments().get(dragSegmentIndex);
+        }
+        if (targetSegment == null || targetSegment.getBars().contains(targetBar)) {
+            return;
+        }
+
+        for (Segment segment : model.getSegments()) {
+            if (segment.getBars().remove(targetBar)) {
+                targetSegment.addBar(targetBar);
+                return;
+            }
+        }
+    }
+
+    private Segment findSegmentContainingTimeExcludingBeat(double time, Beat excludedBeat) {
+        for (Segment segment : model.getSegments()) {
+            double start = segmentStartExcluding(segment, excludedBeat, null);
+            double end = segmentEndExcluding(segment, excludedBeat, null);
+            if (time >= start && time <= end && end >= start) {
+                return segment;
+            }
+        }
+        return null;
+    }
+
+    private Segment findSegmentContainingTimeExcludingBar(double time, Bar excludedBar) {
+        for (Segment segment : model.getSegments()) {
+            double start = segmentStartExcluding(segment, null, excludedBar);
+            double end = segmentEndExcluding(segment, null, excludedBar);
+            if (time >= start && time <= end && end >= start) {
+                return segment;
+            }
+        }
+        return null;
+    }
+
+    private Bar findBarContainingTimeExcludingBeat(Segment segment, double time, Beat excludedBeat) {
+        for (Bar bar : segment.getBars()) {
+            double start = Double.POSITIVE_INFINITY;
+            double end = Double.NEGATIVE_INFINITY;
+            for (Beat beat : bar.getBeats()) {
+                if (beat == excludedBeat) {
+                    continue;
+                }
+                start = Math.min(start, beat.getStart());
+                end = Math.max(end, beat.getEnd());
+            }
+            if (start != Double.POSITIVE_INFINITY && time >= start && time <= end) {
+                return bar;
+            }
+        }
+        return null;
+    }
+
+    private double segmentStartExcluding(Segment segment, Beat excludedBeat, Bar excludedBar) {
+        double start = Double.POSITIVE_INFINITY;
+        for (Bar bar : segment.getBars()) {
+            if (bar == excludedBar) {
+                continue;
+            }
+            for (Beat beat : bar.getBeats()) {
+                if (beat != excludedBeat) {
+                    start = Math.min(start, beat.getStart());
+                }
+            }
+        }
+        return start == Double.POSITIVE_INFINITY ? 0.0 : start;
+    }
+
+    private double segmentEndExcluding(Segment segment, Beat excludedBeat, Bar excludedBar) {
+        double end = Double.NEGATIVE_INFINITY;
+        for (Bar bar : segment.getBars()) {
+            if (bar == excludedBar) {
+                continue;
+            }
+            for (Beat beat : bar.getBeats()) {
+                if (beat != excludedBeat) {
+                    end = Math.max(end, beat.getEnd());
+                }
+            }
+        }
+        return end == Double.NEGATIVE_INFINITY ? -1.0 : end;
     }
 
     private void seekAndUpdatePlayhead(double targetTimeInSeconds) {
@@ -1044,7 +1217,11 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             JMenuItem add = new JMenuItem("Add segment here");
             add.addActionListener(a -> {
                 double start = model.getMaxTime();
-                model.addSegment(new Segment(start, start + 10, "verse"));
+                Segment segment = new Segment("verse");
+                Bar bar = new Bar();
+                bar.addBeat(new Beat(true, start, start + 10));
+                segment.addBar(bar);
+                model.addSegment(segment);
                 selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
                 LOG.fine("Timeline: added segment at " + start + "s (context menu)");
             });
@@ -1065,10 +1242,10 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 JMenuItem del = new JMenuItem("Delete downbeat (bar)");
                 del.addActionListener(a -> {
                     LOG.fine("Timeline: delete downbeat (bar) #" + di + " (context menu)");
-                    Bar bar = getBarForDownbeatAtSegmentIndex(si, di);
+                    Bar bar = getBarAtFlatIndex(di);
                     if (bar != null) {
                         s.getBars().remove(bar);
-                        model.notifyAllProjectChangeListeners();
+                        model.normalizeProjectStructureAndNotify();
                     }
                 });
                 menu.add(del);
@@ -1088,7 +1265,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                         for (Segment seg : model.getSegments()) {
                             for (Bar bar : seg.getBars()) {
                                 if (bar.getBeats().remove(b)) {
-                                    model.notifyAllProjectChangeListeners();
+                                    model.normalizeProjectStructureAndNotify();
                                     return;
                                 }
                             }
@@ -1129,7 +1306,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                     newBar.addBeat(newBeat);
                     s.addBar(newBar);
                 }
-                model.notifyAllProjectChangeListeners();
+                model.normalizeProjectStructureAndNotify();
                 LOG.fine("Timeline: add beat at " + t + "s (context menu)");
             });
             JMenuItem addDownbeat = new JMenuItem("Add downbeat here");
@@ -1139,7 +1316,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
                 Bar newBar = new Bar();
                 newBar.addBeat(dbBeat);
                 s.addBar(newBar);
-                model.notifyAllProjectChangeListeners();
+                model.normalizeProjectStructureAndNotify();
                 LOG.fine("Timeline: add downbeat at " + t + "s (context menu)");
             });
             menu.add(addBeat);
@@ -1167,7 +1344,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         if (y >= hdrBot && y < dbBot) {
             int di = hitDownbeatInSegment(x, si, w);
             if (di >= 0) {
-                Bar bar = getBarForDownbeatAtSegmentIndex(si, di);
+                Bar bar = getBarAtFlatIndex(di);
                 if (bar != null && !bar.getBeats().isEmpty()) {
                     return String.format("downbeat %.3f s", bar.getBeats().get(0).getStart());
                 }
