@@ -64,8 +64,11 @@ public class MainFrame extends JFrame {
     private final JTextField audioFilePathTextField = new JTextField(34);
 
     private File currentlyOpenedAnalysisFile;
-    private double previousTickPlaybackPositionInSeconds = 0;
     private boolean lastKnownIsPlaying = false;
+    // Cached label state so the 33 Hz tick allocates/repaints only when the
+    // displayed text actually changes.
+    private String cachedDurationLabelText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0);
+    private String lastRenderedPositionText = null;
     // Reused for follow-scroll so the 33 Hz tick never allocates a Rectangle.
     private final Rectangle scrollTargetRect = new Rectangle();
 
@@ -91,7 +94,11 @@ public class MainFrame extends JFrame {
 
         pcmWavPlaybackEngine.setPlaybackCompletionListener(() -> SwingUtilities.invokeLater(this::refreshPlayPauseButtonLabel));
 
-        // Position timer: playhead + metronome + follow-scroll.
+        // Keep the engine's sample-accurate metronome schedule in sync with edits.
+        projectModel.addProjectChangeListener(this::pushMetronomeBeatsToEngine);
+
+        // Position timer: playhead + follow-scroll (the metronome is mixed in by
+        // the audio engine itself, sample-accurately — not driven from this tick).
         Timer posTimer = new Timer(30, e -> onPlaybackPositionTimerTick());
         posTimer.start();
 
@@ -165,8 +172,11 @@ public class MainFrame extends JFrame {
         tb.add(playbackPositionTimeLabel);
         tb.addSeparator();
 
-        metronomeEnabledCheckBox.addActionListener(a ->
-                LOG.fine("Metronome " + (metronomeEnabledCheckBox.isSelected() ? "enabled" : "disabled")));
+        metronomeEnabledCheckBox.addActionListener(a -> {
+            boolean on = metronomeEnabledCheckBox.isSelected();
+            pcmWavPlaybackEngine.setMetronomeEnabled(on);
+            LOG.fine("Metronome " + (on ? "enabled" : "disabled"));
+        });
         tb.add(metronomeEnabledCheckBox);
         tb.addSeparator();
 
@@ -237,31 +247,29 @@ public class MainFrame extends JFrame {
         }
         double pos = pcmWavPlaybackEngine.getPositionSeconds();
         timelinePanel.setPlayheadPositionInSeconds(pos);
-        playbackPositionTimeLabel.setText(
-                PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pos)
-                        + " / " + PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pcmWavPlaybackEngine.getDurationSeconds()));
+
+        // Only touch the label when the rendered text changes (~3 ticks per tenth
+        // of a second), so the steady tick does not allocate/repaint every 30 ms.
+        String positionText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pos);
+        if (!positionText.equals(lastRenderedPositionText)) {
+            lastRenderedPositionText = positionText;
+            playbackPositionTimeLabel.setText(positionText + " / " + cachedDurationLabelText);
+        }
 
         refreshPlayPauseButtonLabel();
         if (pcmWavPlaybackEngine.isPlaying()) {
-            if (metronomeEnabledCheckBox.isSelected() && pcmWavPlaybackEngine.hasMetronome()) {
-                triggerMetronomeClickIfBeatFallsInInterval(previousTickPlaybackPositionInSeconds, pos);
-            }
             scrollTimelineToKeepPlayheadVisible(pos);
         }
-        previousTickPlaybackPositionInSeconds = pos;
     }
 
-    private void triggerMetronomeClickIfBeatFallsInInterval(double intervalStartSeconds, double intervalEndSeconds) {
-        if (intervalEndSeconds <= intervalStartSeconds) {
-            return;
+    /** Build the seconds→engine metronome schedule from the current beat list. */
+    private void pushMetronomeBeatsToEngine() {
+        var beats = projectModel.getBeats();
+        double[] times = new double[beats.size()];
+        for (int i = 0; i < times.length; i++) {
+            times[i] = beats.get(i).getTime();
         }
-        for (var b : projectModel.getBeats()) {
-            double t = b.getTime();
-            if (t > intervalStartSeconds && t <= intervalEndSeconds) {
-                pcmWavPlaybackEngine.playClick();
-                break; // at most one click per tick is plenty at 30ms
-            }
-        }
+        pcmWavPlaybackEngine.setMetronomeBeatTimes(times);
     }
 
     private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
@@ -425,9 +433,14 @@ public class MainFrame extends JFrame {
             } else {
                 applicationStatusLabel.setText("Audio ready: " + audioFile.getName()
                         + String.format("  (%.1fs)", pcmWavPlaybackEngine.getDurationSeconds()));
-                playbackPositionTimeLabel.setText(
-                        PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0)
-                                + " / " + PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pcmWavPlaybackEngine.getDurationSeconds()));
+                cachedDurationLabelText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(
+                        pcmWavPlaybackEngine.getDurationSeconds());
+                lastRenderedPositionText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0);
+                playbackPositionTimeLabel.setText(lastRenderedPositionText + " / " + cachedDurationLabelText);
+                // Sample rate is known now: (re)publish the metronome schedule and
+                // honour the current checkbox state.
+                pushMetronomeBeatsToEngine();
+                pcmWavPlaybackEngine.setMetronomeEnabled(metronomeEnabledCheckBox.isSelected());
             }
             refreshPlayPauseButtonLabel();
         }).execute();

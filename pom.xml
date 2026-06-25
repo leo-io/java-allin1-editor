@@ -75,8 +75,29 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.0.0</version>
+                <!--
+                  `mvn exec:exec` forks a JVM with the realtime-audio GC settings
+                  below so a collection cannot pause longer than the ~300 ms audio
+                  line buffer and underrun playback:
+                    - Generational ZGC: sub-millisecond pauses, ideal for the large
+                      static decoded-PCM byte[] this app keeps on the heap.
+                    - Fixed, pre-touched heap: no stop-the-world heap resize mid-song.
+                  `mvn exec:java` still works (runs in-process via <mainClass>) but
+                  does NOT apply these flags — prefer exec:exec, or the run scripts.
+                -->
                 <configuration>
                     <mainClass>${main.class}</mainClass>
+                    <executable>java</executable>
+                    <arguments>
+                        <argument>-XX:+UseZGC</argument>
+                        <argument>-XX:+ZGenerational</argument>
+                        <argument>-Xms512m</argument>
+                        <argument>-Xmx512m</argument>
+                        <argument>-XX:+AlwaysPreTouch</argument>
+                        <argument>-classpath</argument>
+                        <classpath/>
+                        <argument>${main.class}</argument>
+                    </arguments>
                 </configuration>
             </plugin>
         </plugins>

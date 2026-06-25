@@ -18,13 +18,30 @@ Produces a runnable fat-jar at `target/audio-json-editor.jar` and runs the
 JSON round-trip tests.
 
 ## Run
+For smooth, glitch-free playback use the launcher scripts — they start the JVM
+with realtime-audio GC settings (see *Performance* below):
 ```
-java -jar target/audio-json-editor.jar [optional-path-to.json]
-# or
-mvn exec:java -Dexec.args="20260612_163540-sleeping.json"
+./run.sh             [optional-path-to.json]   # macOS / Linux
+.\run.ps1            [optional-path-to.json]   # Windows (PowerShell)
+# or, via Maven (forks a JVM with the same GC flags):
+mvn exec:exec
 ```
+Plain `java -jar target/java-allin1-editor.jar` and `mvn exec:java` also work but
+run with the default collector, which can cause periodic audio dropouts.
+
 If a JSON path is passed, it is opened on startup and the WAV referenced by its
 `path` field is auto-loaded. If that WAV is missing you are prompted to Browse.
+
+## Performance (realtime audio)
+Audio is pumped on a dedicated high-priority thread with a ~300 ms line buffer.
+Two things keep playback from stuttering:
+- **The metronome is mixed into the primary output stream** sample-accurately by
+  the pump thread — there is no second `Clip`/line to glitch the main one, and
+  clicks land exactly on the beat regardless of UI load.
+- **A low-pause collector with a fixed, pre-touched heap** (Generational ZGC by
+  default; `-Xms=-Xmx`, `AlwaysPreTouch`) so no GC pause exceeds the audio buffer.
+  Generational ZGC needs JDK 21+; the scripts contain a commented G1 fallback
+  (`-XX:+UseG1GC -XX:MaxGCPauseMillis=50`) for other JVMs.
 
 ## Editing
 **Timeline** (top): click to seek, drag the playhead to scrub.

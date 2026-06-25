@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * In-memory, fully editable representation of an analysis JSON file.
@@ -34,7 +35,9 @@ public class ProjectModel {
     /** Top-level JSON keys we don't model explicitly, kept for round-trip fidelity. */
     private final Map<String, JsonNode> unmodelledJsonFields = new LinkedHashMap<>();
 
-    private final List<ProjectChangeListener> projectChangeListeners = new ArrayList<>();
+    // Copy-on-write so notify() can iterate without a defensive copy — that copy
+    // was allocated on every mouse-drag mutation, feeding the periodic GC stutter.
+    private final List<ProjectChangeListener> projectChangeListeners = new CopyOnWriteArrayList<>();
     private boolean hasUnsavedChanges = false;
 
     private final List<String> knownSegmentLabelVocabulary = new ArrayList<>(List.of(
@@ -53,7 +56,8 @@ public class ProjectModel {
     /** Fire a change notification (call after any external mutation). */
     public void notifyAllProjectChangeListeners() {
         hasUnsavedChanges = true;
-        for (ProjectChangeListener l : new ArrayList<>(projectChangeListeners)) {
+        // CopyOnWriteArrayList iteration is snapshot-safe without allocating here.
+        for (ProjectChangeListener l : projectChangeListeners) {
             l.modelChanged();
         }
     }

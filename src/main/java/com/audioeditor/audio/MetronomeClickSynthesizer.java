@@ -1,107 +1,49 @@
 package com.audioeditor.audio;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.Clip;
-import javax.sound.sampled.DataLine;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 /**
- * Owns PCM synthesis and {@link Clip} playback of metronome clicks.
+ * Pure PCM generator for the metronome click.
  *
- * <p>A short decaying sine burst is synthesised once into an in-memory clip;
- * each {@link #triggerClickPlayback()} call restarts that clip, giving a
- * low-latency, non-blocking click that overlaps WAV playback.
+ * <p>Produces a short decaying-sine burst as a little-endian 16-bit PCM byte
+ * array in the <em>playback</em> format (matching sample rate, channel count and
+ * frame size of the loaded WAV). The click is <b>mixed directly into the primary
+ * output stream</b> by {@link PcmWavPlaybackEngine}'s pump thread, so there is no
+ * second {@code SourceDataLine}/{@code Clip} to glitch the main line, and click
+ * timing is sample-accurate rather than tied to an EDT tick.
  */
-public class MetronomeClickSynthesizer {
+public final class MetronomeClickSynthesizer {
 
-    public static final float CLICK_SYNTHESIS_SAMPLE_RATE_HZ = 44100f;
     public static final int CLICK_DURATION_MILLISECONDS = 35;
     public static final double CLICK_TONE_FREQUENCY_HZ = 1500.0;
     public static final double CLICK_AMPLITUDE_SCALE = 0.6;
 
-    private volatile Clip synthesizedClickClip;
-    // Serializes clip restart against close so a click task never touches a
-    // clip that closeClickClip() is releasing.
-    private final Object clipLock = new Object();
-    // Dedicated single-thread executor so the native Clip stop/setFramePosition/
-    // start calls never run on the EDT tick — they would jitter playback.
-    private final ExecutorService clickExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "metronome-click");
-        t.setDaemon(true);
-        return t;
-    });
-
-    /** Synthesise (or re-synthesise) the click clip. Safe to call on reload. */
-    public void initializeSynthesizedClickClip() {
-        try {
-            float sr = CLICK_SYNTHESIS_SAMPLE_RATE_HZ;
-            int ms = CLICK_DURATION_MILLISECONDS;
-            int n = (int) (sr * ms / 1000);
-            byte[] data = new byte[n * 2];
-            for (int i = 0; i < n; i++) {
-                double env = 1.0 - (i / (double) n);
-                double v = Math.sin(2 * Math.PI * CLICK_TONE_FREQUENCY_HZ * i / sr) * env * CLICK_AMPLITUDE_SCALE;
-                short sample = (short) (v * Short.MAX_VALUE);
-                data[2 * i] = (byte) (sample & 0xff);
-                data[2 * i + 1] = (byte) ((sample >> 8) & 0xff);
-            }
-            AudioFormat fmt = new AudioFormat(sr, 16, 1, true, false);
-            DataLine.Info info = new DataLine.Info(Clip.class, fmt);
-            Clip clip = (Clip) AudioSystem.getLine(info);
-            clip.open(fmt, data, 0, data.length);
-            synchronized (clipLock) {
-                synthesizedClickClip = clip;
-            }
-        } catch (Exception e) {
-            synchronized (clipLock) {
-                synthesizedClickClip = null; // metronome simply unavailable
-            }
-        }
+    private MetronomeClickSynthesizer() {
     }
 
     /**
-     * Fire one metronome click. Non-blocking: the native Clip restart is
-     * dispatched to a background thread so the EDT tick never stalls on it.
+     * Synthesize one click as interleaved little-endian 16-bit PCM in the given
+     * playback format. The same mono burst is duplicated across every channel.
+     *
+     * @param sampleRateHz playback sample rate
+     * @param channels     playback channel count (>= 1)
+     * @return interleaved PCM bytes, {@code durationFrames * channels * 2} long
      */
-    public void triggerClickPlayback() {
-        clickExecutor.execute(this::runClickRestart);
-    }
-
-    private void runClickRestart() {
-        synchronized (clipLock) {
-            Clip c = synthesizedClickClip;
-            if (c == null) {
-                return;
-            }
-            try {
-                c.stop();
-                c.setFramePosition(0);
-                c.start();
-            } catch (Exception ignored) {
-                // A clip closed mid-click is harmless; just drop this click.
-            }
-        }
-    }
-
-    public boolean isClickClipAvailable() {
-        synchronized (clipLock) {
-            return synthesizedClickClip != null;
-        }
-    }
-
-    /** Release the click clip's native resources. */
-    public void closeClickClip() {
-        synchronized (clipLock) {
-            if (synthesizedClickClip != null) {
-                try {
-                    synthesizedClickClip.close();
-                } catch (Exception ignored) {
-                }
-                synthesizedClickClip = null;
+    public static byte[] synthesizeClick(float sampleRateHz, int channels) {
+        int ch = Math.max(1, channels);
+        int frames = (int) (sampleRateHz * CLICK_DURATION_MILLISECONDS / 1000.0);
+        byte[] data = new byte[frames * ch * 2];
+        for (int i = 0; i < frames; i++) {
+            double env = 1.0 - (i / (double) frames);                // linear decay to zero
+            double v = Math.sin(2 * Math.PI * CLICK_TONE_FREQUENCY_HZ * i / sampleRateHz)
+                    * env * CLICK_AMPLITUDE_SCALE;
+            short sample = (short) (v * Short.MAX_VALUE);
+            byte lo = (byte) (sample & 0xff);
+            byte hi = (byte) ((sample >> 8) & 0xff);
+            int base = i * ch * 2;
+            for (int c = 0; c < ch; c++) {
+                data[base + c * 2] = lo;
+                data[base + c * 2 + 1] = hi;
             }
         }
-        // The executor stays alive (daemon) across reloads; it is reclaimed on JVM exit.
+        return data;
     }
 }
