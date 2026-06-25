@@ -42,6 +42,17 @@
         <version>3.0.0</version>
         <configuration>
           <mainClass>${main.class}</mainClass>
+          <executable>java</executable>
+          <arguments>
+            <argument>-XX:+UseZGC</argument>
+            <argument>-XX:+ZGenerational</argument>
+            <argument>-Xms512m</argument>
+            <argument>-Xmx512m</argument>
+            <argument>-XX:+AlwaysPreTouch</argument>
+            <argument>-classpath</argument>
+            <classpath />
+            <argument>${main.class}</argument>
+          </arguments>
         </configuration>
       </plugin>
     </plugins>

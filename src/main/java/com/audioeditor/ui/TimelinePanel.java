@@ -81,6 +81,21 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     // Populated on first access per label; avoids per-frame Color allocation in the hot paint path.
     private static final Map<String, Color[]> SEGMENT_COLORS = new HashMap<>();
 
+    // Interned bar-position labels so the hot paint path never calls
+    // Integer.toString() per beat per frame.
+    private static final String[] BAR_POSITION_LABELS = new String[33];
+    static {
+        for (int i = 0; i < BAR_POSITION_LABELS.length; i++) {
+            BAR_POSITION_LABELS[i] = Integer.toString(i);
+        }
+    }
+
+    private static String barPositionLabel(int position) {
+        return (position >= 0 && position < BAR_POSITION_LABELS.length)
+                ? BAR_POSITION_LABELS[position]
+                : Integer.toString(position);
+    }
+
     private static Color[] segmentColors(String label) {
         return SEGMENT_COLORS.computeIfAbsent(label == null ? "" : label, l -> {
             int hue = Math.floorMod(l.toLowerCase().hashCode(), 360);
@@ -122,6 +137,9 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
     private Font beatLabelFont;
     private final int[] playheadTriangleX = new int[3];
     private final int[] playheadTriangleY = new int[3];
+    // Reusable {segmentRow, xMin, xMax} scratch for narrow playhead repaints.
+    private final int[] playheadBoundsOld = new int[3];
+    private final int[] playheadBoundsNew = new int[3];
 
     // Cached derived values — invalidated in modelChanged() to avoid per-frame recomputation.
     private double cachedMaxDuration = 1e-3;
@@ -157,16 +175,64 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
         if (positionInSeconds == this.playheadPositionInSeconds) {
             return;
         }
-        int oldRowTop = playheadRowTopY(this.playheadPositionInSeconds);
+        // Compute the exact x-extent the playhead block occupies before and after
+        // the move (triangle + the beat/downbeat interval blocks), so we repaint
+        // only those columns of the affected row(s) instead of every full row.
+        computePlayheadPaintBounds(this.playheadPositionInSeconds, playheadBoundsOld);
         this.playheadPositionInSeconds = positionInSeconds;
-        int newRowTop = playheadRowTopY(positionInSeconds);
+        computePlayheadPaintBounds(positionInSeconds, playheadBoundsNew);
+
+        if (playheadBoundsOld[0] >= 0 && playheadBoundsOld[0] == playheadBoundsNew[0]) {
+            // Same row: one repaint over the union of both blocks' x-range.
+            int xMin = Math.min(playheadBoundsOld[1], playheadBoundsNew[1]);
+            int xMax = Math.max(playheadBoundsOld[2], playheadBoundsNew[2]);
+            repaintPlayheadRow(playheadBoundsNew[0], xMin, xMax);
+        } else {
+            // Different (or vanishing/appearing) rows: repaint each side's block.
+            if (playheadBoundsOld[0] >= 0) {
+                repaintPlayheadRow(playheadBoundsOld[0], playheadBoundsOld[1], playheadBoundsOld[2]);
+            }
+            if (playheadBoundsNew[0] >= 0) {
+                repaintPlayheadRow(playheadBoundsNew[0], playheadBoundsNew[1], playheadBoundsNew[2]);
+            }
+        }
+    }
+
+    private void repaintPlayheadRow(int segIndex, int xMin, int xMax) {
+        int x = Math.max(0, xMin - 2);
+        int wdt = (xMax + 2) - x;
+        repaint(x, rowTopY(segIndex) - 2, wdt, rowHeightPixels + 4);
+    }
+
+    /**
+     * Fill {@code out} with {@code {segmentRow, xMin, xMax}} describing the pixel
+     * columns the playhead (triangle + interval blocks) covers at {@code time};
+     * {@code out[0] = -1} when the time is in no segment. Mirrors {@link #drawPlayhead}.
+     */
+    private void computePlayheadPaintBounds(double time, int[] out) {
+        int si = findSegmentContainingTime(time);
+        if (si < 0) {
+            out[0] = -1;
+            return;
+        }
+        Segment s = model.getSegments().get(si);
         int w = Math.max(1, getWidth());
-        // Repaint the full rows around the old and new playhead positions — the
-        // playhead block can span an entire beat/downbeat interval, so a narrow
-        // strip repaint is not enough.
-        int yMin = Math.min(oldRowTop, newRowTop) - 2;
-        int yMax = Math.max(oldRowTop, newRowTop) + rowHeightPixels + 2;
-        repaint(0, yMin, w, yMax - yMin);
+        int x = timeToXInSegment(time, s, w);
+        int xMin = x - 6; // triangle half-width (5) + slack
+        int xMax = x + 6;
+        double[] db = currentDownbeatInterval(s, time);
+        if (db != null) {
+            xMin = Math.min(xMin, timeToXInSegment(db[0], s, w));
+            xMax = Math.max(xMax, timeToXInSegment(db[1], s, w));
+        }
+        double[] be = currentBeatInterval(s, time);
+        if (be != null) {
+            xMin = Math.min(xMin, timeToXInSegment(be[0], s, w));
+            xMax = Math.max(xMax, timeToXInSegment(be[1], s, w));
+        }
+        out[0] = si;
+        out[1] = xMin;
+        out[2] = xMax;
     }
 
     /** Y-centre of the segment row containing the playhead (-1 if in no segment). */
@@ -422,7 +488,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             if (zoneBottom - zoneTop > 18) {
                 g.setFont(beatLabelFont);
                 g.setColor(sel ? Color.WHITE : BEAT_LABEL_COLOR);
-                g.drawString(Integer.toString(b.getPosition()), x + 2, zoneBottom - 3);
+                g.drawString(barPositionLabel(b.getPosition()), x + 2, zoneBottom - 3);
             }
         }
     }
