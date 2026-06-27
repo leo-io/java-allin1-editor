@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 class JsonIORoundTripTest {
 
@@ -93,6 +94,23 @@ class JsonIORoundTripTest {
                 """);
 
         assertThrows(Exception.class, () -> AllIn1JsonFileRepository.INSTANCE.loadFromFile(tmp));
+    }
+
+    @Test
+    void unknownTopLevelFieldsSurviveRoundTripWithoutJacksonInDomain() throws Exception {
+        File source = Files.createTempFile("editor-extra", ".json").toFile();
+        File saved = Files.createTempFile("editor-extra-saved", ".json").toFile();
+        Files.writeString(source.toPath(), """
+                {"path":"song.wav","bpm":120,"segments":[],
+                 "analysis":{"provider":"test","confidence":0.75},"tags":["a","b"]}
+                """);
+
+        ProjectModel project = AllIn1JsonFileRepository.INSTANCE.loadFromFile(source);
+        AllIn1JsonFileRepository.INSTANCE.saveToFile(project, saved);
+
+        var root = new ObjectMapper().readTree(saved);
+        assertEquals("test", root.path("analysis").path("provider").asText());
+        assertEquals(2, root.path("tags").size());
     }
 
     private ProjectModel sampleNestedProject() {

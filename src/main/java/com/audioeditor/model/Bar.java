@@ -1,7 +1,9 @@
 package com.audioeditor.model;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * A single bar: an ordered list of {@link Beat}s. The first beat (when
@@ -10,18 +12,36 @@ import java.util.List;
  * stored field — so editing any beat keeps a bar's bounds consistent.
  */
 public class Bar {
+    private final UUID id;
     private final List<Beat> beats;
 
     public Bar() {
+        this.id = UUID.randomUUID();
         this.beats = new ArrayList<>();
     }
 
+    public UUID getId() {
+        return id;
+    }
+
     public List<Beat> getBeats() {
+        return Collections.unmodifiableList(beats);
+    }
+
+    List<Beat> mutableBeats() {
         return beats;
     }
 
     public void addBeat(Beat beat) {
         beats.add(beat);
+    }
+
+    public void addBeat(int index, Beat beat) {
+        beats.add(index, beat);
+    }
+
+    public boolean removeBeat(Beat beat) {
+        return beats.remove(beat);
     }
 
     public void removeBeat(int index) {

@@ -458,42 +458,15 @@ public final class SegmentMappingRepairTool {
     }
 
     private static List<Path> expandInput(Path input, boolean recursive) throws IOException {
-        if (Files.isRegularFile(input)) {
-            return List.of(input);
-        }
-        if (!Files.isDirectory(input)) {
-            throw new IOException("Not found: " + input);
-        }
-
-        int maxDepth = recursive ? Integer.MAX_VALUE : 1;
-        try (Stream<Path> paths = Files.walk(input, maxDepth)) {
-            return paths
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".json"))
-                    .filter(path -> !path.getFileName().toString().toLowerCase().contains(".bak"))
-                    .toList();
-        }
+        return FileToolSupport.expandJsonInput(input, recursive, name -> !name.contains(".bak"));
     }
 
     private static Path nextBackupPath(Path original) {
-        Path backup = original.resolveSibling(original.getFileName() + ".mapping-repair.bak");
-        if (!Files.exists(backup)) {
-            return backup;
-        }
-        for (int i = 2; ; i++) {
-            Path candidate = original.resolveSibling(original.getFileName() + ".mapping-repair.bak" + i);
-            if (!Files.exists(candidate)) {
-                return candidate;
-            }
-        }
+        return FileToolSupport.nextBackupPath(original, ".mapping-repair.bak");
     }
 
     private static void replaceFile(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException ex) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
+        FileToolSupport.replaceAtomicallyWhenSupported(source, target);
     }
 
     private static boolean hasHelpFlag(String[] args) {

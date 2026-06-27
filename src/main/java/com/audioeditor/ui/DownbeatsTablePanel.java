@@ -1,9 +1,10 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.application.editing.ProjectEditor;
 import com.audioeditor.model.Bar;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
+import com.audioeditor.port.audio.AudioPlayer;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -29,15 +30,17 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
     private static final Logger LOG = Logger.getLogger(DownbeatsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final PcmWavPlaybackEngine audio;
+    private final ProjectEditor editor;
+    private final AudioPlayer audio;
     private final SelectionModel selection;
     private final JTable table;
     private final BarsTableModel tableModel;
     private boolean isSuppressingSelectionFeedback = false;
 
-    public DownbeatsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
+    public DownbeatsTablePanel(ProjectModel model, ProjectEditor editor, AudioPlayer audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
+        this.editor = editor;
         this.audio = audio;
         this.selection = selection;
         this.tableModel = new BarsTableModel();
@@ -192,20 +195,14 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
         }
 
         void removeBar(Bar bar) {
-            for (Segment s : model.getSegments()) {
-                if (s.getBars().remove(bar)) {
-                    model.normalizeProjectStructureAndNotify();
-                    return;
-                }
-            }
+            editor.removeBar(bar);
         }
 
         void moveBarUp(Bar bar) {
             for (Segment s : model.getSegments()) {
                 int idx = s.getBars().indexOf(bar);
                 if (idx > 0) {
-                    s.moveBar(idx, idx - 1);
-                    model.notifyAllProjectChangeListeners();
+                    editor.moveBar(bar, -1);
                     return;
                 }
             }
@@ -215,8 +212,7 @@ public class DownbeatsTablePanel extends JPanel implements ProjectModel.ProjectC
             for (Segment s : model.getSegments()) {
                 int idx = s.getBars().indexOf(bar);
                 if (idx >= 0 && idx < s.getBars().size() - 1) {
-                    s.moveBar(idx, idx + 1);
-                    model.notifyAllProjectChangeListeners();
+                    editor.moveBar(bar, 1);
                     return;
                 }
             }

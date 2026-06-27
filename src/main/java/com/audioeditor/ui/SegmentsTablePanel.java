@@ -1,10 +1,11 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.application.editing.ProjectEditor;
 import com.audioeditor.model.Bar;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
+import com.audioeditor.port.audio.AudioPlayer;
 
 import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
@@ -30,15 +31,17 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
     private static final Logger LOG = Logger.getLogger(SegmentsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final PcmWavPlaybackEngine audio;
+    private final ProjectEditor editor;
+    private final AudioPlayer audio;
     private final SelectionModel selection;
     private final JTable table;
     private final SegmentTableModel tableModel;
     private boolean isSuppressingSelectionFeedback = false;
 
-    public SegmentsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
+    public SegmentsTablePanel(ProjectModel model, ProjectEditor editor, AudioPlayer audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
+        this.editor = editor;
         this.audio = audio;
         this.selection = selection;
         this.tableModel = new SegmentTableModel();
@@ -96,7 +99,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
             Bar bar = new Bar();
             bar.addBeat(new Beat(true, start, start + 10));
             seg.addBar(bar);
-            model.addSegment(seg);
+            editor.addSegment(seg);
             rebuildSegmentLabelComboBoxEditor();
             selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, model.getSegments().size() - 1);
             LOG.fine("Segments table: added segment");
@@ -104,8 +107,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         dup.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
-                model.getSegments().add(row + 1, model.getSegments().get(row).copy());
-                model.notifyAllProjectChangeListeners();
+                editor.duplicateSegment(row);
                 selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row + 1);
                 LOG.fine("Segments table: duplicated segment row " + row);
             }
@@ -113,7 +115,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         del.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
-                model.removeSegment(row);
+                editor.removeSegment(row);
                 selectTableRowAndBroadcastSelection(Math.min(row, model.getSegments().size() - 1));
                 LOG.fine("Segments table: deleted segment row " + row);
             }
@@ -121,7 +123,7 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         up.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row > 0) {
-                model.moveSegment(row, row - 1);
+                editor.moveSegment(row, row - 1);
                 selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row - 1);
                 LOG.fine("Segments table: moved segment row " + row + " up");
             }
@@ -129,13 +131,13 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         down.addActionListener(a -> {
             int row = table.getSelectedRow();
             if (row >= 0 && row < model.getSegments().size() - 1) {
-                model.moveSegment(row, row + 1);
+                editor.moveSegment(row, row + 1);
                 selection.selectItem(SelectionModel.SelectableItemType.SEGMENT, row + 1);
                 LOG.fine("Segments table: moved segment row " + row + " down");
             }
         });
         sort.addActionListener(a -> {
-            model.sortSegments();
+            editor.sortSegments();
             LOG.fine("Segments table: sorted by start");
         });
 
@@ -239,11 +241,8 @@ public class SegmentsTablePanel extends JPanel implements ProjectModel.ProjectCh
         @Override
         public void setValueAt(Object v, int r, int c) {
             if (c == 1) {
-                Segment s = model.getSegments().get(r);
-                s.setLabel(v.toString());
-                model.rememberLabel(v.toString());
+                editor.renameSegment(r, v.toString());
                 rebuildSegmentLabelComboBoxEditor();
-                model.notifyAllProjectChangeListeners();
                 LOG.fine("Segments table: edited row " + r + " label = " + v);
             }
         }

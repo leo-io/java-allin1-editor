@@ -1,6 +1,7 @@
 package com.audioeditor.io;
 
 import com.audioeditor.model.ProjectModel;
+import com.audioeditor.port.persistence.MusicAnalysisRepository;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,9 +13,14 @@ import java.io.IOException;
  * behind a stable, technology-neutral contract so the UI depends only on this
  * interface, not on Jackson types.
  */
-public interface MusicAnalysisFileRepository {
+@Deprecated(forRemoval = false)
+public interface MusicAnalysisFileRepository extends MusicAnalysisRepository {
 
-    ProjectModel loadFromFile(File analysisJsonFile) throws IOException;
+    default ProjectModel loadFromFile(File analysisJsonFile) throws IOException {
+        return load(analysisJsonFile.toPath());
+    }
 
-    void saveToFile(ProjectModel projectModel, File targetFile) throws IOException;
+    default void saveToFile(ProjectModel projectModel, File targetFile) throws IOException {
+        save(projectModel, targetFile.toPath());
+    }
 }

@@ -14,7 +14,7 @@ hear whether your edits line up with the music.
 ```
 mvn clean package
 ```
-Produces a runnable fat-jar at `target/audio-json-editor.jar` and runs the
+Produces a runnable fat-jar at `target/java-allin1-editor.jar` and runs the
 JSON round-trip tests.
 
 ## Run
@@ -33,7 +33,7 @@ If a JSON path is passed, it is opened on startup and the WAV referenced by its
 `path` field is auto-loaded. If that WAV is missing you are prompted to Browse.
 
 ## Performance (realtime audio)
-Audio is pumped on a dedicated high-priority thread with a ~300 ms line buffer.
+Audio is pumped on a dedicated high-priority thread with a ~500 ms line buffer.
 Two things keep playback from stuttering:
 - **The metronome is mixed into the primary output stream** sample-accurately by
   the pump thread — there is no second `Clip`/line to glitch the main one, and
@@ -45,7 +45,8 @@ Two things keep playback from stuttering:
 
 ## Editing
 **Timeline** (top): click to seek, drag the playhead to scrub.
-- **Segments** (colored blocks): drag the body to move, drag an edge to resize.
+- **Segments** (colored blocks): select, rename, copy/paste, merge, split, delete,
+  and repair bar boundaries from the context menu or keyboard shortcuts.
 - **Downbeats** (red band) and **beats** (lower band): drag to retime; the beat's
   bar position (1..4) is drawn on each tick.
 - **Double-click** empty space in a band to add an object there.
@@ -67,12 +68,35 @@ All edits update the timeline, tables and playhead live — even during playback
 list is split back into the parallel `beats` / `beat_positions` arrays, and any
 unrecognized top-level keys from the original file are preserved.
 
+## Architecture
+
+The application is a ports-and-adapters modular monolith. The bootstrap creates
+and wires implementations manually; Swing does not construct JSON or Java Sound
+adapters. Domain collections are exposed read-only, and user edits pass through
+`ProjectEditor` so normalization and notifications cannot be skipped.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for dependency and threading rules.
+
 ## Layout
 ```
 com.audioeditor
-├─ App                 entry point
-├─ model/              Beat, Segment, ProjectModel (change events + dirty flag)
-├─ io/JsonIO           load/save with unknown-key preservation
-├─ audio/AudioEngine   in-memory PCM playback, seek, metronome click
-└─ ui/                 TimelinePanel, *TablePanel, SelectionModel, MainFrame
+├─ AudioAnalysisEditorApplication   composition root
+├─ application/                    session, editing and workflow orchestration
+├─ domain/analysis/                immutable cross-boundary values
+├─ model/                          Project aggregate, Segment, Bar and Beat
+├─ port/                           audio and persistence contracts
+├─ io/                             Jackson adapter and schema mapper
+├─ audio/                          Java Sound adapter and pure PCM/range helpers
+├─ tools/                          thin maintenance CLI adapters
+└─ ui/                             Swing views and timeline layout helpers
 ```
+
+## Tests
+
+```text
+mvn clean test
+```
+
+The suite covers domain editing and invariants, JSON round-trips and unknown
+fields, repair tools, stable selection identity, timeline geometry, PCM mixing,
+playable-range stitching, session state, and architectural dependency rules.

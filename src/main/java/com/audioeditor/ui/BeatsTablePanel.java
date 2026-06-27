@@ -1,10 +1,11 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.application.editing.ProjectEditor;
 import com.audioeditor.model.Bar;
 import com.audioeditor.model.Beat;
 import com.audioeditor.model.ProjectModel;
 import com.audioeditor.model.Segment;
+import com.audioeditor.port.audio.AudioPlayer;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -27,15 +28,17 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
     private static final Logger LOG = Logger.getLogger(BeatsTablePanel.class.getName());
 
     private final ProjectModel model;
-    private final PcmWavPlaybackEngine audio;
+    private final ProjectEditor editor;
+    private final AudioPlayer audio;
     private final SelectionModel selection;
     private final JTable table;
     private final BeatMarkerTableModel tableModel;
     private boolean isSuppressingSelectionFeedback = false;
 
-    public BeatsTablePanel(ProjectModel model, PcmWavPlaybackEngine audio, SelectionModel selection) {
+    public BeatsTablePanel(ProjectModel model, ProjectEditor editor, AudioPlayer audio, SelectionModel selection) {
         super(new BorderLayout());
         this.model = model;
+        this.editor = editor;
         this.audio = audio;
         this.selection = selection;
         this.tableModel = new BeatMarkerTableModel();
@@ -188,14 +191,13 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
             Beat b = flatBeatList.get(r);
             try {
                 switch (c) {
-                    case 2 -> b.setStart(Math.max(0, Double.parseDouble(v.toString())));
-                    case 3 -> b.setEnd(Math.max(0, Double.parseDouble(v.toString())));
-                    case 4 -> b.setDownbeat((Boolean) v);
+                    case 2 -> editor.updateBeat(b, Double.parseDouble(v.toString()), b.getEnd(), b.isDownbeat());
+                    case 3 -> editor.updateBeat(b, b.getStart(), Double.parseDouble(v.toString()), b.isDownbeat());
+                    case 4 -> editor.updateBeat(b, b.getStart(), b.getEnd(), (Boolean) v);
                     default -> {
                         return;
                     }
                 }
-                model.normalizeProjectStructureAndNotify();
                 LOG.fine("Beats table: edited row " + r + " col " + c + " = " + v);
             } catch (NumberFormatException ignored) {
             }
@@ -209,14 +211,7 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
         }
 
         void removeBeat(Beat beat) {
-            for (Segment s : model.getSegments()) {
-                for (Bar bar : s.getBars()) {
-                    if (bar.getBeats().remove(beat)) {
-                        model.normalizeProjectStructureAndNotify();
-                        return;
-                    }
-                }
-            }
+            editor.removeBeat(beat);
         }
 
         void moveBeatUp(Beat beat) {
@@ -224,8 +219,7 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
                 for (Bar bar : s.getBars()) {
                     int idx = bar.getBeats().indexOf(beat);
                     if (idx > 0) {
-                        bar.moveBeat(idx, idx - 1);
-                        model.notifyAllProjectChangeListeners();
+                        editor.moveBeat(beat, -1);
                         return;
                     }
                 }
@@ -237,8 +231,7 @@ public class BeatsTablePanel extends JPanel implements ProjectModel.ProjectChang
                 for (Bar bar : s.getBars()) {
                     int idx = bar.getBeats().indexOf(beat);
                     if (idx >= 0 && idx < bar.getBeats().size() - 1) {
-                        bar.moveBeat(idx, idx + 1);
-                        model.notifyAllProjectChangeListeners();
+                        editor.moveBeat(beat, 1);
                         return;
                     }
                 }

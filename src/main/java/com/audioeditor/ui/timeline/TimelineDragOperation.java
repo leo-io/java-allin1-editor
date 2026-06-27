@@ -1,0 +1,6 @@
+package com.audioeditor.ui.timeline;
+
+public enum TimelineDragOperation {
+    NO_DRAG_ACTIVE, DRAGGING_BEAT_MARKER, DRAGGING_DOWNBEAT_MARKER,
+    DRAGGING_SEGMENT_BODY, DRAGGING_SEGMENT_START_EDGE, DRAGGING_SEGMENT_END_EDGE
+}
