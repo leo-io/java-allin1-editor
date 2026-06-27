@@ -491,7 +491,7 @@ public class TimelinePanel extends JPanel implements Scrollable, ProjectModel.Pr
             g.setFont(segmentLabelFont);
             g.setColor(Color.WHITE);
             String headerText = cw > 150
-                    ? String.format("%s - %s", s.getLabel(), buildSegmentCounter(s))
+                    ? String.format("%s (%.1fs) - %s", s.getLabel(), s.getDuration(), buildSegmentCounter(s))
                     : s.getLabel();
             headerText = fitTextToWidth(g, headerText, Math.max(0, cw - 12));
             g.drawString(headerText, 6, yTop + 15);
