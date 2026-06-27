@@ -1,6 +1,14 @@
 package com.audioeditor;
 
+import com.audioeditor.application.EditorSession;
+import com.audioeditor.application.editing.ProjectEditor;
+import com.audioeditor.application.playback.PlaybackCoordinator;
+import com.audioeditor.application.project.ProjectFileController;
+import com.audioeditor.audio.PcmWavPlaybackEngine;
+import com.audioeditor.io.AllIn1JsonFileRepository;
+import com.audioeditor.model.ProjectModel;
 import com.audioeditor.ui.MainFrame;
+import com.audioeditor.ui.SelectionModel;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -33,7 +41,20 @@ public class AudioAnalysisEditorApplication {
             // fall back to default look and feel
         }
         SwingUtilities.invokeLater(() -> {
-            MainFrame frame = new MainFrame();
+            ProjectModel project = new ProjectModel();
+            EditorSession session = new EditorSession(project);
+            PcmWavPlaybackEngine audioPlayer = new PcmWavPlaybackEngine();
+            PlaybackCoordinator playbackCoordinator = new PlaybackCoordinator(project, audioPlayer);
+            SelectionModel selectionModel = new SelectionModel();
+            selectionModel.bind(project);
+            AllIn1JsonFileRepository repository = new AllIn1JsonFileRepository();
+            MainFrame frame = new MainFrame(
+                    session,
+                    new ProjectEditor(project),
+                    new ProjectFileController(session, repository),
+                    playbackCoordinator,
+                    audioPlayer,
+                    selectionModel);
             frame.setVisible(true);
             if (args.length > 0) {
                 File commandLineJsonFile = new File(args[0]);

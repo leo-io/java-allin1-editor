@@ -1,9 +1,11 @@
 package com.audioeditor.ui;
 
-import com.audioeditor.audio.PcmWavPlaybackEngine;
-import com.audioeditor.io.AllIn1JsonFileRepository;
-import com.audioeditor.io.MusicAnalysisFileRepository;
+import com.audioeditor.application.EditorSession;
+import com.audioeditor.application.editing.ProjectEditor;
+import com.audioeditor.application.playback.PlaybackCoordinator;
+import com.audioeditor.application.project.ProjectFileController;
 import com.audioeditor.model.ProjectModel;
+import com.audioeditor.port.audio.AudioPlayer;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -19,23 +21,23 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSlider;
+import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
-import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
-import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
-import java.util.function.Consumer;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -48,13 +50,16 @@ public class MainFrame extends JFrame {
 
     private static final Logger LOG = Logger.getLogger(MainFrame.class.getName());
 
-    private final ProjectModel projectModel = new ProjectModel();
-    private final PcmWavPlaybackEngine pcmWavPlaybackEngine = new PcmWavPlaybackEngine();
-    private final SelectionModel sharedSelectionModel = new SelectionModel();
-    private final MusicAnalysisFileRepository musicAnalysisFileRepository = AllIn1JsonFileRepository.INSTANCE;
+    private final ProjectModel projectModel;
+    private final ProjectEditor projectEditor;
+    private final ProjectFileController projectFileController;
+    private final PlaybackCoordinator playbackCoordinator;
+    private final AudioPlayer audioPlayer;
+    private final SelectionModel sharedSelectionModel;
 
     private final TimelinePanel timelinePanel;
     private final JScrollPane timelineScrollPane;
+    private final PlaybackViewController playbackViewController;
 
     private final JLabel playbackPositionTimeLabel = new JLabel("0:00.0 / 0:00.0");
     private final JLabel applicationStatusLabel = new JLabel("No file loaded");
@@ -63,63 +68,60 @@ public class MainFrame extends JFrame {
     private final JTextField beatsPerMinuteTextField = new JTextField(5);
     private final JTextField audioFilePathTextField = new JTextField(34);
 
-    private File currentlyOpenedAnalysisFile;
     private boolean lastKnownIsPlaying = false;
-    // Cached label state so the 33 Hz tick allocates/repaints only when the
-    // displayed text actually changes.
-    private String cachedDurationLabelText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0);
-    private String lastRenderedPositionText = null;
-    // Reused for follow-scroll so the 33 Hz tick never allocates a Rectangle.
-    private final Rectangle scrollTargetRect = new Rectangle();
-    // When true the viewport auto-scrolls to keep the playhead visible.
-    // Cleared when the user manually scrolls during playback; restored on play-start.
-    private boolean followPlayhead = true;
-    private boolean isAutoScrolling = false;
 
-    public MainFrame() {
+    public MainFrame(EditorSession editorSession,
+                     ProjectEditor projectEditor,
+                     ProjectFileController projectFileController,
+                     PlaybackCoordinator playbackCoordinator,
+                     AudioPlayer audioPlayer,
+                     SelectionModel sharedSelectionModel) {
         super("Audio Analysis JSON Editor");
+        this.projectModel = Objects.requireNonNull(editorSession, "editorSession").project();
+        this.projectEditor = Objects.requireNonNull(projectEditor, "projectEditor");
+        this.projectFileController = Objects.requireNonNull(projectFileController, "projectFileController");
+        this.playbackCoordinator = Objects.requireNonNull(playbackCoordinator, "playbackCoordinator");
+        this.audioPlayer = Objects.requireNonNull(audioPlayer, "audioPlayer");
+        this.sharedSelectionModel = Objects.requireNonNull(sharedSelectionModel, "sharedSelectionModel");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(1280, 760);
         setLocationRelativeTo(null);
 
-        timelinePanel = new TimelinePanel(projectModel, pcmWavPlaybackEngine, sharedSelectionModel);
+        timelinePanel = new TimelinePanel(projectModel, projectEditor, audioPlayer, sharedSelectionModel);
         timelineScrollPane = new JScrollPane(timelinePanel,
                 JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         timelineScrollPane.setBorder(BorderFactory.createTitledBorder("Timeline — segments stacked vertically: click to seek, drag markers/segments, double-click to play, right-click to delete"));
-        timelineScrollPane.getViewport().addChangeListener(e -> {
-            if (!isAutoScrolling && pcmWavPlaybackEngine.isPlaying()) {
-                followPlayhead = false;
-            }
-        });
+        playbackViewController = new PlaybackViewController(
+                audioPlayer, timelinePanel, timelineScrollPane,
+                playbackPositionTimeLabel, this::refreshPlayPauseButtonLabel);
 
         setJMenuBar(buildMenu());
 
         JPanel top = new JPanel(new BorderLayout());
         top.add(buildToolbar(), BorderLayout.NORTH);
-        top.add(timelineScrollPane, BorderLayout.CENTER);
+        JTabbedPane editorTables = new JTabbedPane();
+        editorTables.addTab("Segments", new SegmentsTablePanel(
+                projectModel, projectEditor, audioPlayer, sharedSelectionModel));
+        editorTables.addTab("Beats", new BeatsTablePanel(
+                projectModel, projectEditor, audioPlayer, sharedSelectionModel));
+        editorTables.addTab("Downbeats", new DownbeatsTablePanel(
+                projectModel, projectEditor, audioPlayer, sharedSelectionModel));
+        JSplitPane editorSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, timelineScrollPane, editorTables);
+        editorSplit.setResizeWeight(0.68);
+        editorSplit.setOneTouchExpandable(true);
+        top.add(editorSplit, BorderLayout.CENTER);
 
         add(top, BorderLayout.CENTER);
         add(buildStatusBar(), BorderLayout.SOUTH);
 
-        pcmWavPlaybackEngine.setPlaybackCompletionListener(() -> SwingUtilities.invokeLater(this::refreshPlayPauseButtonLabel));
-
-        // Keep the engine's sample-accurate metronome schedule in sync with edits.
-        projectModel.addProjectChangeListener(this::pushMetronomeBeatsToEngine);
-        // Restrict playback to the surviving segments so editor deletions are not
-        // heard (the engine plays only these ranges, stitching across the gaps).
-        projectModel.addProjectChangeListener(this::pushPlayableRangesToEngine);
-
-        // Position timer: playhead + follow-scroll (the metronome is mixed in by
-        // the audio engine itself, sample-accurately — not driven from this tick).
-        Timer posTimer = new Timer(30, e -> onPlaybackPositionTimerTick());
-        posTimer.start();
+        audioPlayer.onPlaybackCompleted(() -> SwingUtilities.invokeLater(this::refreshPlayPauseButtonLabel));
 
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
                 LOG.fine("Window close requested");
                 if (confirmDiscardUnsavedChanges()) {
-                    pcmWavPlaybackEngine.close();
+                    audioPlayer.close();
                     dispose();
                     LOG.info("Application shutting down");
                     System.exit(0);
@@ -168,17 +170,17 @@ public class MainFrame extends JFrame {
 
         playPauseButton.addActionListener(a -> {
             LOG.fine("Transport: play/pause toggled (button)");
-            pcmWavPlaybackEngine.togglePlay();
+            audioPlayer.togglePlay();
             refreshPlayPauseButtonLabel();
         });
         JButton stop = new JButton("■ Stop");
         stop.addActionListener(a -> {
             LOG.fine("Transport: stop requested (button)");
-            pcmWavPlaybackEngine.stop();
+            audioPlayer.stop();
             refreshPlayPauseButtonLabel();
             // stop() rewinds to the first kept range, which may not be t=0; mirror it
             // so the playhead lands inside a segment (and stays visible).
-            timelinePanel.setPlayheadPositionInSeconds(pcmWavPlaybackEngine.getPositionSeconds());
+            timelinePanel.setPlayheadPositionInSeconds(audioPlayer.getPositionSeconds());
         });
 
         tb.add(playPauseButton);
@@ -188,7 +190,7 @@ public class MainFrame extends JFrame {
 
         metronomeEnabledCheckBox.addActionListener(a -> {
             boolean on = metronomeEnabledCheckBox.isSelected();
-            pcmWavPlaybackEngine.setMetronomeEnabled(on);
+            audioPlayer.setMetronomeEnabled(on);
             LOG.fine("Metronome " + (on ? "enabled" : "disabled"));
         });
         tb.add(metronomeEnabledCheckBox);
@@ -246,84 +248,11 @@ public class MainFrame extends JFrame {
         getRootPane().registerKeyboardAction(a -> {
                     if (!(getFocusOwner() instanceof JTextField)) {
                         LOG.fine("Transport: play/pause toggled (space key)");
-                        pcmWavPlaybackEngine.togglePlay();
+                        audioPlayer.togglePlay();
                         refreshPlayPauseButtonLabel();
                     }
                 }, KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0),
                 JPanel.WHEN_IN_FOCUSED_WINDOW);
-    }
-
-    // ---- periodic tick ---------------------------------------------------
-
-    private void onPlaybackPositionTimerTick() {
-        if (!pcmWavPlaybackEngine.isLoaded()) {
-            return;
-        }
-        double pos = pcmWavPlaybackEngine.getPositionSeconds();
-        timelinePanel.setPlayheadPositionInSeconds(pos);
-
-        // Only touch the label when the rendered text changes (~3 ticks per tenth
-        // of a second), so the steady tick does not allocate/repaint every 30 ms.
-        String positionText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(pos);
-        if (!positionText.equals(lastRenderedPositionText)) {
-            lastRenderedPositionText = positionText;
-            playbackPositionTimeLabel.setText(positionText + " / " + cachedDurationLabelText);
-        }
-
-        refreshPlayPauseButtonLabel();
-        if (pcmWavPlaybackEngine.isPlaying()) {
-            scrollTimelineToKeepPlayheadVisible(pos);
-        }
-    }
-
-    /** Build the seconds→engine metronome schedule from the current beat list. */
-    private void pushMetronomeBeatsToEngine() {
-        var beats = projectModel.getAllBeatsFlat();
-        double[] times = new double[beats.size()];
-        for (int i = 0; i < times.length; i++) {
-            times[i] = beats.get(i).getStart();
-        }
-        pcmWavPlaybackEngine.setMetronomeBeatTimes(times);
-    }
-
-    /** Restrict playback to the surviving segments' time ranges (an edit-decision list). */
-    private void pushPlayableRangesToEngine() {
-        var segments = projectModel.getSegments();
-        double[] ranges = new double[segments.size() * 2];
-        int i = 0;
-        for (var s : segments) {
-            ranges[i++] = s.getStart();
-            ranges[i++] = s.getEnd();
-        }
-        pcmWavPlaybackEngine.setPlayableTimeRangesSeconds(ranges);
-    }
-
-    private void scrollTimelineToKeepPlayheadVisible(double playheadPositionInSeconds) {
-        if (!followPlayhead) {
-            return;
-        }
-        int y = timelinePanel.getPlayheadCenterY();
-        if (y < 0) {
-            return;
-        }
-        Rectangle view = timelineScrollPane.getViewport().getViewRect();
-        // Keep the active segment row inside a vertical margin band. When it
-        // leaves the band we nudge the view by only the overflow (a few px per
-        // 30 ms tick), not a half-viewport recenter — that avoids the large
-        // repaint/revalidate spike a centered jump would cause.
-        int margin = Math.max(40, view.height / 8);
-        int newViewY = view.y;
-        if (y < view.y + margin) {
-            newViewY = Math.max(0, y - margin);
-        } else if (y > view.y + view.height - margin) {
-            newViewY = y - view.height + margin;
-        }
-        if (newViewY != view.y) {
-            isAutoScrolling = true;
-            scrollTargetRect.setBounds(0, newViewY, timelinePanel.getWidth(), view.height);
-            timelinePanel.scrollRectToVisible(scrollTargetRect);
-            isAutoScrolling = false;
-        }
     }
 
     // ---- file operations -------------------------------------------------
@@ -335,8 +264,8 @@ public class MainFrame extends JFrame {
         }
         JFileChooser fc = new JFileChooser();
         fc.setFileFilter(new FileNameExtensionFilter("Analysis JSON (*.json)", "json"));
-        if (currentlyOpenedAnalysisFile != null) {
-            fc.setCurrentDirectory(currentlyOpenedAnalysisFile.getParentFile());
+        if (projectFileController.currentFile() != null) {
+            fc.setCurrentDirectory(projectFileController.currentFile().toFile().getParentFile());
         }
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             loadAnalysisFileIntoEditor(fc.getSelectedFile());
@@ -349,15 +278,14 @@ public class MainFrame extends JFrame {
         new SwingWorker<ProjectModel, Void>() {
             @Override
             protected ProjectModel doInBackground() throws Exception {
-                return musicAnalysisFileRepository.loadFromFile(analysisJsonFile);
+                return projectFileController.load(analysisJsonFile.toPath());
             }
 
             @Override
             protected void done() {
                 try {
                     ProjectModel loaded = get();
-                    projectModel.copyFrom(loaded);
-                    currentlyOpenedAnalysisFile = analysisJsonFile;
+                    projectFileController.activate(loaded, analysisJsonFile.toPath());
                     setTitle("Audio Analysis JSON Editor — " + analysisJsonFile.getName());
                     refreshToolbarFieldsFromProjectModel();
                     sharedSelectionModel.clearSelection();
@@ -380,12 +308,12 @@ public class MainFrame extends JFrame {
 
     private void saveCurrentAnalysisFile(boolean forceShowSaveDialog) {
         LOG.fine("Save requested (forceShowSaveDialog=" + forceShowSaveDialog + ")");
-        File target = currentlyOpenedAnalysisFile;
+        File target = projectFileController.currentFile() == null ? null : projectFileController.currentFile().toFile();
         if (forceShowSaveDialog || target == null) {
             JFileChooser fc = new JFileChooser();
             fc.setFileFilter(new FileNameExtensionFilter("Analysis JSON (*.json)", "json"));
-            if (currentlyOpenedAnalysisFile != null) {
-                fc.setSelectedFile(currentlyOpenedAnalysisFile);
+            if (projectFileController.currentFile() != null) {
+                fc.setSelectedFile(projectFileController.currentFile().toFile());
             }
             if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
                 return;
@@ -396,8 +324,7 @@ public class MainFrame extends JFrame {
             }
         }
         try {
-            musicAnalysisFileRepository.saveToFile(projectModel, target);
-            currentlyOpenedAnalysisFile = target;
+            projectFileController.save(target.toPath());
             setTitle("Audio Analysis JSON Editor — " + target.getName());
             applicationStatusLabel.setText("Saved " + target.getName());
             LOG.info("Saved analysis file: " + target.getAbsolutePath());
@@ -409,7 +336,7 @@ public class MainFrame extends JFrame {
     }
 
     private boolean confirmDiscardUnsavedChanges() {
-        if (!projectModel.isDirty()) {
+        if (!projectFileController.hasUnsavedChanges()) {
             return true;
         }
         int r = JOptionPane.showConfirmDialog(this,
@@ -459,22 +386,18 @@ public class MainFrame extends JFrame {
         }
         applicationStatusLabel.setText("Decoding audio… " + audioFile.getName());
         LOG.info("Loading audio for playback: " + audioFile.getAbsolutePath());
-        new AudioFileDecodingWorker(audioFile, pcmWavPlaybackEngine, ex -> {
+        new AudioFileDecodingWorker(audioFile.toPath(), audioPlayer, ex -> {
             if (ex != null) {
                 LOG.log(Level.WARNING, "Audio load failed: " + audioFile.getAbsolutePath(), ex);
                 applicationStatusLabel.setText("Audio load failed: " + ex.getMessage());
             } else {
                 applicationStatusLabel.setText("Audio ready: " + audioFile.getName()
-                        + String.format("  (%.1fs)", pcmWavPlaybackEngine.getDurationSeconds()));
-                cachedDurationLabelText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(
-                        pcmWavPlaybackEngine.getDurationSeconds());
-                lastRenderedPositionText = PlaybackTimeFormatter.formatSecondsAsMinutesAndSeconds(0);
-                playbackPositionTimeLabel.setText(lastRenderedPositionText + " / " + cachedDurationLabelText);
+                        + String.format("  (%.1fs)", audioPlayer.getDurationSeconds()));
+                playbackViewController.audioLoaded();
                 // Sample rate is known now: (re)publish the metronome schedule and
                 // the playable segment ranges, and honour the current checkbox state.
-                pushMetronomeBeatsToEngine();
-                pushPlayableRangesToEngine();
-                pcmWavPlaybackEngine.setMetronomeEnabled(metronomeEnabledCheckBox.isSelected());
+                playbackCoordinator.synchronizeAll();
+                audioPlayer.setMetronomeEnabled(metronomeEnabledCheckBox.isSelected());
             }
             refreshPlayPauseButtonLabel();
         }).execute();
@@ -501,13 +424,13 @@ public class MainFrame extends JFrame {
     }
 
     private void refreshPlayPauseButtonLabel() {
-        boolean isPlaying = pcmWavPlaybackEngine.isPlaying();
+        boolean isPlaying = audioPlayer.isPlaying();
         if (isPlaying != lastKnownIsPlaying) {
             lastKnownIsPlaying = isPlaying;
             playPauseButton.setText(isPlaying ? "❚❚ Pause" : "▶ Play");
             timelinePanel.repaint();
             if (isPlaying) {
-                followPlayhead = true;
+                playbackViewController.playbackStarted();
             }
         }
     }
@@ -516,39 +439,4 @@ public class MainFrame extends JFrame {
         return numericValue == Math.rint(numericValue) ? Long.toString((long) numericValue) : Double.toString(numericValue);
     }
 
-    /** Decodes a WAV file off the EDT, reporting success/failure via a callback. */
-    private static final class AudioFileDecodingWorker extends SwingWorker<Exception, Void> {
-        private final File audioFileToLoad;
-        private final PcmWavPlaybackEngine playbackEngine;
-        private final Consumer<Exception> onCompletionCallback;
-
-        AudioFileDecodingWorker(File audioFileToLoad,
-                                PcmWavPlaybackEngine playbackEngine,
-                                Consumer<Exception> onCompletionCallback) {
-            this.audioFileToLoad = audioFileToLoad;
-            this.playbackEngine = playbackEngine;
-            this.onCompletionCallback = onCompletionCallback;
-        }
-
-        @Override
-        protected Exception doInBackground() {
-            try {
-                playbackEngine.loadAndDecodeWavFile(audioFileToLoad);
-                return null;
-            } catch (Exception ex) {
-                return ex;
-            }
-        }
-
-        @Override
-        protected void done() {
-            Exception ex;
-            try {
-                ex = get();
-            } catch (Exception e) {
-                ex = e;
-            }
-            onCompletionCallback.accept(ex);
-        }
-    }
 }

@@ -1,7 +1,9 @@
 package com.audioeditor.model;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * A song segment: a labelled group of bars (e.g. intro / verse / chorus /
@@ -10,12 +12,18 @@ import java.util.List;
  * automatically.
  */
 public class Segment {
+    private final UUID id;
     private String label;
     private final List<Bar> bars;
 
     public Segment(String label) {
+        this.id = UUID.randomUUID();
         this.label = label;
         this.bars = new ArrayList<>();
+    }
+
+    public UUID getId() {
+        return id;
     }
 
     /**
@@ -36,11 +44,31 @@ public class Segment {
     }
 
     public List<Bar> getBars() {
+        return Collections.unmodifiableList(bars);
+    }
+
+    List<Bar> mutableBars() {
         return bars;
     }
 
     public void addBar(Bar bar) {
         bars.add(bar);
+    }
+
+    public void addBar(int index, Bar bar) {
+        bars.add(index, bar);
+    }
+
+    public void addBars(List<Bar> barsToAdd) {
+        bars.addAll(barsToAdd);
+    }
+
+    public void addBars(int index, List<Bar> barsToAdd) {
+        bars.addAll(index, barsToAdd);
+    }
+
+    public boolean removeBar(Bar bar) {
+        return bars.remove(bar);
     }
 
     public void removeBar(int index) {

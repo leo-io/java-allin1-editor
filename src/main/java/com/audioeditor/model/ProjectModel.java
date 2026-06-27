@@ -1,12 +1,14 @@
 package com.audioeditor.model;
 
-import com.fasterxml.jackson.databind.JsonNode;
-
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -31,18 +33,33 @@ public class ProjectModel {
         void modelChanged();
     }
 
+    public enum ChangeKind { METADATA, STRUCTURE, TIMING }
+
+    public record ProjectChange(Set<ChangeKind> kinds) {
+        public ProjectChange {
+            kinds = Set.copyOf(kinds);
+        }
+
+        public boolean affectsPlaybackSchedule() {
+            return kinds.contains(ChangeKind.STRUCTURE) || kinds.contains(ChangeKind.TIMING);
+        }
+    }
+
+    public interface DetailedProjectChangeListener {
+        void projectChanged(ProjectChange change);
+    }
+
     private String referencedAudioFilePath = "";
     private double beatsPerMinute = 0;
     private final List<Segment> segmentList = new ArrayList<>();
 
     /** Top-level JSON keys we don't model explicitly, kept for round-trip fidelity. */
-    private final Map<String, JsonNode> unmodelledJsonFields = new LinkedHashMap<>();
+    private final Map<String, Object> unmodelledJsonFields = new LinkedHashMap<>();
 
     // Copy-on-write so notify() can iterate without a defensive copy — that copy
     // was allocated on every mouse-drag mutation, feeding the periodic GC stutter.
     private final List<ProjectChangeListener> projectChangeListeners = new CopyOnWriteArrayList<>();
-    private boolean hasUnsavedChanges = false;
-
+    private final List<DetailedProjectChangeListener> detailedProjectChangeListeners = new CopyOnWriteArrayList<>();
     private final List<String> knownSegmentLabelVocabulary = new ArrayList<>(List.of(
             "intro", "verse", "chorus", "bridge", "break", "outro", "end"));
 
@@ -56,12 +73,30 @@ public class ProjectModel {
         projectChangeListeners.remove(listener);
     }
 
+    public void addDetailedProjectChangeListener(DetailedProjectChangeListener listener) {
+        detailedProjectChangeListeners.add(listener);
+    }
+
+    public void removeDetailedProjectChangeListener(DetailedProjectChangeListener listener) {
+        detailedProjectChangeListeners.remove(listener);
+    }
+
     /** Fire a change notification (call after any external mutation). */
     public void notifyAllProjectChangeListeners() {
-        hasUnsavedChanges = true;
+        notifyProjectChanged(ChangeKind.STRUCTURE, ChangeKind.TIMING);
+    }
+
+    public void notifyProjectChanged(ChangeKind... kinds) {
+        EnumSet<ChangeKind> changeKinds = kinds.length == 0
+                ? EnumSet.noneOf(ChangeKind.class)
+                : EnumSet.copyOf(List.of(kinds));
+        ProjectChange change = new ProjectChange(changeKinds);
         // CopyOnWriteArrayList iteration is snapshot-safe without allocating here.
         for (ProjectChangeListener l : projectChangeListeners) {
             l.modelChanged();
+        }
+        for (DetailedProjectChangeListener listener : detailedProjectChangeListeners) {
+            listener.projectChanged(change);
         }
     }
 
@@ -73,7 +108,7 @@ public class ProjectModel {
 
     public void setAudioPath(String audioPath) {
         this.referencedAudioFilePath = audioPath == null ? "" : audioPath;
-        notifyAllProjectChangeListeners();
+        notifyProjectChanged(ChangeKind.METADATA);
     }
 
     public double getBpm() {
@@ -82,15 +117,19 @@ public class ProjectModel {
 
     public void setBpm(double bpm) {
         this.beatsPerMinute = bpm;
-        notifyAllProjectChangeListeners();
+        notifyProjectChanged(ChangeKind.METADATA);
     }
 
-    public Map<String, JsonNode> getExtraFields() {
-        return unmodelledJsonFields;
+    public Map<String, Object> getExtraFields() {
+        return Collections.unmodifiableMap(unmodelledJsonFields);
+    }
+
+    public void putExtraField(String name, Object value) {
+        unmodelledJsonFields.put(name, value);
     }
 
     public List<String> getLabelVocabulary() {
-        return knownSegmentLabelVocabulary;
+        return List.copyOf(knownSegmentLabelVocabulary);
     }
 
     public void rememberLabel(String label) {
@@ -102,13 +141,20 @@ public class ProjectModel {
     // ---- segments (which own bars which own beats) ----------------------
 
     public List<Segment> getSegments() {
-        return segmentList;
+        return Collections.unmodifiableList(segmentList);
+    }
+
+    public void addSegment(int index, Segment segment) {
+        int insertionPoint = Math.max(0, Math.min(index, segmentList.size()));
+        segmentList.add(insertionPoint, segment);
+        rememberLabel(segment.getLabel());
+        notifyProjectChanged(ChangeKind.STRUCTURE);
     }
 
     public void addSegment(Segment s) {
         segmentList.add(s);
         rememberLabel(s.getLabel());
-        notifyAllProjectChangeListeners();
+        notifyProjectChanged(ChangeKind.STRUCTURE);
     }
 
     public void removeSegment(int index) {
@@ -179,7 +225,7 @@ public class ProjectModel {
         int targetIndex = indices.get(0);
         Segment target = segmentList.get(targetIndex);
         for (int i = 1; i < indices.size(); i++) {
-            target.getBars().addAll(segmentList.get(indices.get(i)).getBars());
+            target.mutableBars().addAll(segmentList.get(indices.get(i)).getBars());
         }
         for (int i = indices.size() - 1; i >= 1; i--) {
             segmentList.remove((int) indices.get(i));
@@ -204,8 +250,8 @@ public class ProjectModel {
         }
         Segment right = new Segment(source.getLabel());
         List<Bar> sourceBars = source.getBars();
-        right.getBars().addAll(new ArrayList<>(sourceBars.subList(splitBarIndex, sourceBars.size())));
-        sourceBars.subList(splitBarIndex, sourceBars.size()).clear();
+        right.mutableBars().addAll(new ArrayList<>(sourceBars.subList(splitBarIndex, sourceBars.size())));
+        source.mutableBars().subList(splitBarIndex, sourceBars.size()).clear();
         segmentList.add(segmentIndex + 1, right);
         rememberLabel(right.getLabel());
         notifyAllProjectChangeListeners();
@@ -290,7 +336,7 @@ public class ProjectModel {
         Segment current = segmentList.get(segmentIndex);
         Segment next = segmentList.get(segmentIndex + 1);
         List<Bar> moved = removeBars(next, 0, barCount);
-        current.getBars().addAll(moved);
+        current.mutableBars().addAll(moved);
         normalizeProjectStructure();
         notifyAllProjectChangeListeners();
         return true;
@@ -311,7 +357,7 @@ public class ProjectModel {
         Segment current = segmentList.get(segmentIndex);
         Segment next = segmentList.get(segmentIndex + 1);
         List<Bar> moved = removeBars(current, current.getBars().size() - barCount, barCount);
-        next.getBars().addAll(0, moved);
+        next.mutableBars().addAll(0, moved);
         normalizeProjectStructure();
         notifyAllProjectChangeListeners();
         return true;
@@ -332,7 +378,7 @@ public class ProjectModel {
         Segment current = segmentList.get(segmentIndex);
         Segment previous = segmentList.get(segmentIndex - 1);
         List<Bar> moved = removeBars(previous, previous.getBars().size() - barCount, barCount);
-        current.getBars().addAll(0, moved);
+        current.mutableBars().addAll(0, moved);
         normalizeProjectStructure();
         notifyAllProjectChangeListeners();
         return true;
@@ -353,7 +399,7 @@ public class ProjectModel {
         Segment current = segmentList.get(segmentIndex);
         Segment previous = segmentList.get(segmentIndex - 1);
         List<Bar> moved = removeBars(current, 0, barCount);
-        previous.getBars().addAll(moved);
+        previous.mutableBars().addAll(moved);
         normalizeProjectStructure();
         notifyAllProjectChangeListeners();
         return true;
@@ -373,9 +419,9 @@ public class ProjectModel {
      */
     public void normalizeProjectStructure() {
         for (Segment segment : segmentList) {
-            segment.getBars().removeIf(bar -> bar.getBeats().isEmpty());
+            segment.mutableBars().removeIf(bar -> bar.getBeats().isEmpty());
             for (Bar bar : segment.getBars()) {
-                bar.getBeats().sort(Comparator.comparingDouble(Beat::getStart));
+                bar.mutableBeats().sort(Comparator.comparingDouble(Beat::getStart));
                 for (int i = 0; i < bar.getBeats().size(); i++) {
                     Beat beat = bar.getBeats().get(i);
                     beat.setDownbeat(i == 0);
@@ -386,7 +432,7 @@ public class ProjectModel {
                     }
                 }
             }
-            segment.getBars().sort(Comparator.comparingDouble(Bar::getStartTime));
+            segment.mutableBars().sort(Comparator.comparingDouble(Bar::getStartTime));
         }
         segmentList.sort(Comparator.comparingDouble(Segment::getStart));
     }
@@ -422,6 +468,46 @@ public class ProjectModel {
             }
         }
         return flat;
+    }
+
+    public List<Bar> getAllBarsFlat() {
+        List<Bar> bars = new ArrayList<>();
+        for (Segment segment : segmentList) {
+            bars.addAll(segment.getBars());
+        }
+        return bars;
+    }
+
+    public int findSegmentIndex(UUID id) {
+        if (id == null) {
+            return -1;
+        }
+        for (int index = 0; index < segmentList.size(); index++) {
+            if (segmentList.get(index).getId().equals(id)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    public int findBarIndex(UUID id) {
+        List<Bar> bars = getAllBarsFlat();
+        for (int index = 0; index < bars.size(); index++) {
+            if (bars.get(index).getId().equals(id)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    public int findBeatIndex(UUID id) {
+        List<Beat> beats = getAllBeatsFlat();
+        for (int index = 0; index < beats.size(); index++) {
+            if (beats.get(index).getId().equals(id)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /** Which segment owns the given beat reference, or -1 if none. */
@@ -500,8 +586,8 @@ public class ProjectModel {
     private void moveFirstFragmentToPreviousSegment(int segmentIndex) {
         Segment current = segmentList.get(segmentIndex);
         Segment previous = segmentList.get(segmentIndex - 1);
-        Bar first = current.getBars().remove(0);
-        lastBar(previous).getBeats().addAll(first.getBeats());
+        Bar first = current.mutableBars().remove(0);
+        lastBar(previous).mutableBeats().addAll(first.getBeats());
     }
 
     private boolean canMoveLastFragmentToNextSegment(int segmentIndex) {
@@ -518,8 +604,8 @@ public class ProjectModel {
     private void moveLastFragmentToNextSegment(int segmentIndex) {
         Segment current = segmentList.get(segmentIndex);
         Segment next = segmentList.get(segmentIndex + 1);
-        Bar last = current.getBars().remove(current.getBars().size() - 1);
-        firstBar(next).getBeats().addAll(0, last.getBeats());
+        Bar last = current.mutableBars().remove(current.getBars().size() - 1);
+        firstBar(next).mutableBeats().addAll(0, last.getBeats());
     }
 
     private boolean canCompleteFirstFragmentFromPreviousSegment(int segmentIndex) {
@@ -536,8 +622,8 @@ public class ProjectModel {
     private void completeFirstFragmentFromPreviousSegment(int segmentIndex) {
         Segment current = segmentList.get(segmentIndex);
         Segment previous = segmentList.get(segmentIndex - 1);
-        Bar previousLast = previous.getBars().remove(previous.getBars().size() - 1);
-        firstBar(current).getBeats().addAll(0, previousLast.getBeats());
+        Bar previousLast = previous.mutableBars().remove(previous.getBars().size() - 1);
+        firstBar(current).mutableBeats().addAll(0, previousLast.getBeats());
     }
 
     private boolean canCompleteLastFragmentFromNextSegment(int segmentIndex) {
@@ -554,8 +640,8 @@ public class ProjectModel {
     private void completeLastFragmentFromNextSegment(int segmentIndex) {
         Segment current = segmentList.get(segmentIndex);
         Segment next = segmentList.get(segmentIndex + 1);
-        Bar nextFirst = next.getBars().remove(0);
-        lastBar(current).getBeats().addAll(nextFirst.getBeats());
+        Bar nextFirst = next.mutableBars().remove(0);
+        lastBar(current).mutableBeats().addAll(nextFirst.getBeats());
     }
 
     private boolean areComplementaryEdgeFragments(Bar left, Bar right) {
@@ -581,7 +667,7 @@ public class ProjectModel {
     }
 
     private List<Bar> removeBars(Segment segment, int fromIndex, int barCount) {
-        List<Bar> bars = segment.getBars();
+        List<Bar> bars = segment.mutableBars();
         List<Bar> moved = new ArrayList<>(bars.subList(fromIndex, fromIndex + barCount));
         bars.subList(fromIndex, fromIndex + barCount).clear();
         return moved;
@@ -607,14 +693,6 @@ public class ProjectModel {
         return max;
     }
 
-    public boolean isDirty() {
-        return hasUnsavedChanges;
-    }
-
-    public void setDirty(boolean dirty) {
-        this.hasUnsavedChanges = dirty;
-    }
-
     /** Replace all contents from another freshly-loaded model (used on Open). */
     public void copyFrom(ProjectModel other) {
         this.referencedAudioFilePath = other.referencedAudioFilePath;
@@ -628,8 +706,6 @@ public class ProjectModel {
         for (Segment s : segmentList) {
             rememberLabel(s.getLabel());
         }
-        hasUnsavedChanges = false;
-        notifyAllProjectChangeListeners();
-        hasUnsavedChanges = false;
+        notifyProjectChanged(ChangeKind.METADATA);
     }
 }

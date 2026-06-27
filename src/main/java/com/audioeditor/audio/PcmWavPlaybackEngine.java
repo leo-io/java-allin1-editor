@@ -1,12 +1,14 @@
 package com.audioeditor.audio;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
+import com.audioeditor.domain.analysis.TimeRange;
+import com.audioeditor.port.audio.AudioPlayer;
+import com.audioeditor.port.audio.AudioPlayerException;
+
 import javax.sound.sampled.SourceDataLine;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
@@ -26,9 +28,12 @@ import java.util.logging.Logger;
  * {@code DirectAudioDevice} mixer, and makes click timing exact instead of tied
  * to a ~30&nbsp;ms EDT tick.
  */
-public class PcmWavPlaybackEngine {
+public class PcmWavPlaybackEngine implements AudioPlayer {
 
     private static final Logger LOG = Logger.getLogger(PcmWavPlaybackEngine.class.getName());
+
+    private final WavDecoder wavDecoder;
+    private final AudioLineFactory audioLineFactory;
 
     public interface PlaybackCompletionListener {
         void onEnd();
@@ -83,8 +88,22 @@ public class PcmWavPlaybackEngine {
     private int activeClickPosFrame = 0;                    // read offset into the click
     private int activeClickRemainingFrames = 0;             // 0 == no click sounding
 
+    public PcmWavPlaybackEngine() {
+        this(new WavDecoder(), new JavaSoundLineFactory());
+    }
+
+    public PcmWavPlaybackEngine(WavDecoder wavDecoder, AudioLineFactory audioLineFactory) {
+        this.wavDecoder = wavDecoder;
+        this.audioLineFactory = audioLineFactory;
+    }
+
     public void setPlaybackCompletionListener(PlaybackCompletionListener listener) {
         this.playbackCompletionListener = listener;
+    }
+
+    @Override
+    public void onPlaybackCompleted(Runnable listener) {
+        this.playbackCompletionListener = listener == null ? null : listener::run;
     }
 
     public boolean isLoaded() {
@@ -100,39 +119,27 @@ public class PcmWavPlaybackEngine {
     }
 
     /** Load (and decode) a WAV file. Replaces any previously loaded audio. */
+    @Override
+    public void load(Path audioFile) throws AudioPlayerException {
+        try {
+            loadAndDecodeWavFile(audioFile.toFile());
+        } catch (Exception exception) {
+            throw new AudioPlayerException("Unable to load audio: " + audioFile, exception);
+        }
+    }
+
+    /** Compatibility entry point retained for existing integrations. */
     public synchronized void loadAndDecodeWavFile(File wavFile) throws Exception {
         LOG.info("Loading audio: " + wavFile.getAbsolutePath());
         close();
 
-        AudioInputStream in = AudioSystem.getAudioInputStream(wavFile);
-        AudioFormat base = in.getFormat();
-        // Always decode to 16-bit signed little-endian PCM so the in-stream click
-        // mixer can assume a uniform sample layout (channels * 2 bytes per frame).
-        boolean already16BitSigned = base.getEncoding() == AudioFormat.Encoding.PCM_SIGNED
-                && base.getSampleSizeInBits() == 16
-                && !base.isBigEndian();
-        AudioFormat target = base;
-        if (!already16BitSigned) {
-            target = new AudioFormat(
-                    AudioFormat.Encoding.PCM_SIGNED,
-                    base.getSampleRate(),
-                    16,
-                    base.getChannels(),
-                    base.getChannels() * 2,
-                    base.getSampleRate(),
-                    false);
-            in = AudioSystem.getAudioInputStream(target, in);
-        }
+        DecodedPcmAudio decoded = wavDecoder.decode(wavFile.toPath());
+        this.bytesPerAudioFrame = decoded.bytesPerFrame();
+        this.audioChannelCount = decoded.channels();
+        this.sampleRateInHz = decoded.sampleRate();
+        this.decodedPcmAudioBytes = decoded.bytes();
+        this.totalAudioFrameCount = decoded.frameCount();
 
-        this.bytesPerAudioFrame = Math.max(1, target.getFrameSize());
-        this.audioChannelCount = Math.max(1, target.getChannels());
-        this.sampleRateInHz = target.getSampleRate();
-        this.decodedPcmAudioBytes = in.readAllBytes();
-        in.close();
-        this.totalAudioFrameCount = decodedPcmAudioBytes.length / bytesPerAudioFrame;
-
-        DataLine.Info info = new DataLine.Info(SourceDataLine.class, target);
-        SourceDataLine openedSourceDataLine = (SourceDataLine) AudioSystem.getLine(info);
         // A larger line buffer (~500 ms) absorbs GC pauses, EDT scheduling spikes and
         // the occasional slow blocking write without underrunning. Reported position
         // stays accurate regardless of buffer size because it is derived from
@@ -140,7 +147,7 @@ public class PcmWavPlaybackEngine {
         // see pump() below.
         int desired = (int) (sampleRateInHz * 0.5) * bytesPerAudioFrame;
         int bufBytes = Math.max(bytesPerAudioFrame, desired);
-        openedSourceDataLine.open(target, bufBytes);
+        SourceDataLine openedSourceDataLine = audioLineFactory.open(decoded.format(), bufBytes);
         this.activeSourceDataLine = openedSourceDataLine;
 
         // Build the click in the playback format and the reusable mix scratch buffer.
@@ -371,24 +378,8 @@ public class PcmWavPlaybackEngine {
      */
     private void mixClickVoice(int startFrameInChunk, int framesThisChunk) {
         int n = Math.min(activeClickRemainingFrames, framesThisChunk - startFrameInChunk);
-        int ch = audioChannelCount;
-        for (int f = 0; f < n; f++) {
-            int dstBase = (startFrameInChunk + f) * bytesPerAudioFrame;
-            int clkBase = (activeClickPosFrame + f) * bytesPerAudioFrame;
-            for (int c = 0; c < ch; c++) {
-                int di = dstBase + c * 2;
-                int ci = clkBase + c * 2;
-                int mixed = (short) ((mixWorkBuffer[di] & 0xff) | (mixWorkBuffer[di + 1] << 8))
-                        + (short) ((clickPcmBytes[ci] & 0xff) | (clickPcmBytes[ci + 1] << 8));
-                if (mixed > Short.MAX_VALUE) {
-                    mixed = Short.MAX_VALUE;
-                } else if (mixed < Short.MIN_VALUE) {
-                    mixed = Short.MIN_VALUE;
-                }
-                mixWorkBuffer[di] = (byte) (mixed & 0xff);
-                mixWorkBuffer[di + 1] = (byte) ((mixed >> 8) & 0xff);
-            }
-        }
+        Pcm16Mixer.add(mixWorkBuffer, startFrameInChunk,
+                clickPcmBytes, activeClickPosFrame, n, audioChannelCount);
         activeClickPosFrame += n;
         activeClickRemainingFrames -= n;
     }
@@ -490,50 +481,8 @@ public class PcmWavPlaybackEngine {
      * its next chunk and skips into a kept range if the cursor was left in a gap.
      */
     public void setPlayableTimeRangesSeconds(double[] startEndPairsSeconds) {
-        if (startEndPairsSeconds == null) {
-            playableFrameRanges = null;
-            return;
-        }
-        if (startEndPairsSeconds.length < 2) {
-            playableFrameRanges = new long[0];
-            return;
-        }
-        long total = totalAudioFrameCount > 0 ? totalAudioFrameCount : Long.MAX_VALUE;
-        // Collect valid [start,end) frame pairs.
-        long[][] pairs = new long[startEndPairsSeconds.length / 2][2];
-        int count = 0;
-        for (int i = 0; i + 1 < startEndPairsSeconds.length; i += 2) {
-            long s = Math.max(0, Math.round(startEndPairsSeconds[i] * sampleRateInHz));
-            long e = Math.min(total, Math.round(startEndPairsSeconds[i + 1] * sampleRateInHz));
-            if (e > s) {
-                pairs[count][0] = s;
-                pairs[count][1] = e;
-                count++;
-            }
-        }
-        if (count == 0) {
-            playableFrameRanges = new long[0];
-            return;
-        }
-        java.util.Arrays.sort(pairs, 0, count, (a, b) -> Long.compare(a[0], b[0]));
-        // Merge overlapping / touching ranges.
-        long[] merged = new long[count * 2];
-        int m = 0;
-        long curStart = pairs[0][0];
-        long curEnd = pairs[0][1];
-        for (int i = 1; i < count; i++) {
-            if (pairs[i][0] <= curEnd) {
-                curEnd = Math.max(curEnd, pairs[i][1]);
-            } else {
-                merged[m++] = curStart;
-                merged[m++] = curEnd;
-                curStart = pairs[i][0];
-                curEnd = pairs[i][1];
-            }
-        }
-        merged[m++] = curStart;
-        merged[m++] = curEnd;
-        playableFrameRanges = java.util.Arrays.copyOf(merged, m);
+        playableFrameRanges = PlayableFrameRanges.normalize(
+                startEndPairsSeconds, sampleRateInHz, totalAudioFrameCount);
     }
 
     /**
@@ -542,76 +491,40 @@ public class PcmWavPlaybackEngine {
      * file is playable, so this returns {@link #totalAudioFrameCount} while in range.
      */
     private long playableIntervalEndContaining(long frame, long[] ranges) {
-        if (ranges == null) {
-            return frame < totalAudioFrameCount ? totalAudioFrameCount : -1;
-        }
-        for (int i = 0; i < ranges.length; i += 2) {
-            if (frame >= ranges[i] && frame < ranges[i + 1]) {
-                return ranges[i + 1];
-            }
-        }
-        return -1;
+        return PlayableFrameRanges.intervalEndContaining(frame, ranges, totalAudioFrameCount);
     }
 
     /** Start frame of the first kept range at or after {@code frame}, or -1 if none. */
     private long nextPlayableStartAfter(long frame, long[] ranges) {
-        if (ranges == null) {
-            return frame < totalAudioFrameCount ? Math.max(0, frame) : -1;
-        }
-        for (int i = 0; i < ranges.length; i += 2) {
-            if (ranges[i] >= frame) {
-                return ranges[i];
-            }
-        }
-        return -1;
+        return PlayableFrameRanges.nextStartAtOrAfter(frame, ranges, totalAudioFrameCount);
     }
 
     /** Start frame of the first kept range (0 when unrestricted). */
     private long firstPlayableStart(long[] ranges) {
+        return PlayableFrameRanges.firstStart(ranges);
+    }
+
+    @Override
+    public void setPlayableRanges(List<TimeRange> ranges) {
         if (ranges == null) {
-            return 0;
+            setPlayableTimeRangesSeconds(null);
+            return;
         }
-        return ranges.length == 0 ? -1 : ranges[0];
+        double[] pairs = new double[ranges.size() * 2];
+        int cursor = 0;
+        for (TimeRange range : ranges) {
+            pairs[cursor++] = range.startSeconds();
+            pairs[cursor++] = range.endSeconds();
+        }
+        setPlayableTimeRangesSeconds(pairs);
     }
 
     private long sourceFrameToPlayableOffset(long sourceFrame, long[] ranges) {
-        long frame = Math.max(0, Math.min(sourceFrame, totalAudioFrameCount));
-        if (ranges == null) {
-            return frame;
-        }
-        long playableOffset = 0;
-        for (int i = 0; i < ranges.length; i += 2) {
-            long start = ranges[i];
-            long end = ranges[i + 1];
-            if (frame <= start) {
-                return playableOffset;
-            }
-            if (frame < end) {
-                return playableOffset + frame - start;
-            }
-            playableOffset += end - start;
-        }
-        return playableOffset;
+        return PlayableFrameRanges.sourceToPlayableOffset(sourceFrame, ranges, totalAudioFrameCount);
     }
 
     private long playableOffsetToSourceFrame(long playableOffset, long[] ranges) {
-        long offset = Math.max(0, playableOffset);
-        if (ranges == null) {
-            return Math.max(0, Math.min(offset, totalAudioFrameCount));
-        }
-        if (ranges.length == 0) {
-            return 0;
-        }
-        for (int i = 0; i < ranges.length; i += 2) {
-            long start = ranges[i];
-            long end = ranges[i + 1];
-            long length = end - start;
-            if (offset < length) {
-                return start + offset;
-            }
-            offset -= length;
-        }
-        return ranges[ranges.length - 1];
+        return PlayableFrameRanges.playableOffsetToSource(playableOffset, ranges, totalAudioFrameCount);
     }
 
     // ---- metronome -------------------------------------------------------
